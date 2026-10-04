@@ -1,0 +1,289 @@
+@using System.ComponentModel.DataAnnotations
+@page "/akun/alamat"
+@inject SewaApi Api
+@inject AuthState Auth
+@inject NavigationManager Nav
+
+<PageTitle>Alamat — Sewaku</PageTitle>
+
+<div class="container page-pad">
+    @if (!ready || Auth.User is null)
+    {
+        <h1 class="visually-hidden">Alamat</h1>
+        <Skeleton Bentuk="akun" />
+    }
+    else
+    {
+        <div class="acct">
+            <AccountNav User="Auth.User" />
+
+            <section class="acct__main">
+                <div class="acct__head">
+                    <h1>Alamat</h1>
+                </div>
+
+                @if (error is not null)
+                {
+                    <div class="form__alert" role="alert">@error</div>
+                }
+
+                @if (memuat)
+                {
+                    <Skeleton Bentuk="baris" Jumlah="2" />
+                }
+                else
+                {
+                    <div class="booking-list">
+                        @foreach (var a in daftar)
+                        {
+                            <div class="card addr">
+                                <div class="addr__main">
+                                    <div class="addr__head">
+                                        <b>@a.Label</b>
+                                        @if (a.IsDefault)
+                                        {
+                                            <span class="tag tag--ok">Utama</span>
+                                        }
+                                    </div>
+                                    <div class="addr__who">@a.RecipientName · @a.Phone</div>
+                                    <div class="addr__text">@a.FullAddress</div>
+                                    @if (!string.IsNullOrWhiteSpace(a.Notes))
+                                    {
+                                        <div class="addr__note">@a.Notes</div>
+                                    }
+                                </div>
+                                <div class="addr__actions">
+                                    @if (!a.IsDefault)
+                                    {
+                                        <button type="button" class="btn btn--outline btn--sm"
+                                                disabled="@(sibuk == a.Id)" @onclick="() => JadikanUtama(a.Id)">
+                                            Jadikan utama
+                                        </button>
+                                    }
+                                    <button type="button" class="btn btn--outline btn--sm"
+                                            @onclick="() => Sunting(a)">Ubah</button>
+                                    <button type="button" class="icon-btn" title="Hapus alamat"
+                                            aria-label="Hapus alamat"
+                                            disabled="@(sibuk == a.Id)" @onclick="() => Hapus(a.Id)">
+                                        @Icons.Trash
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    @if (daftar.Count == 0 && !membuka)
+                    {
+                        <div class="state state--flush">
+                            <h3>Belum ada alamat</h3>
+                            <p>Alamat dipakai saat Anda memilih barang diantar pemiliknya.</p>
+                        </div>
+                    }
+
+                    @if (membuka)
+                    {
+                        <div class="card editor__section">
+                            <EditForm Model="form" OnValidSubmit="Simpan">
+                                <DataAnnotationsValidator />
+
+                                <div class="field">
+                                    <label for="label">Nama alamat</label>
+                                    <InputText id="label" @bind-Value="form.Label" placeholder="Rumah, Kantor, Kos" />
+                                    <ValidationMessage For="() => form.Label" />
+                                </div>
+
+                                <div class="field">
+                                    <label for="penerima">Nama penerima</label>
+                                    <InputText id="penerima" @bind-Value="form.RecipientName" />
+                                    <ValidationMessage For="() => form.RecipientName" />
+                                </div>
+
+                                <div class="field">
+                                    <label for="telepon">Nomor telepon</label>
+                                    <InputText id="telepon" @bind-Value="form.Phone" />
+                                    <ValidationMessage For="() => form.Phone" />
+                                </div>
+
+                                <div class="field">
+                                    <label for="alamat">Alamat lengkap</label>
+                                    <InputTextArea id="alamat" rows="3" @bind-Value="form.FullAddress"
+                                                   placeholder="Jalan, nomor, kelurahan, kecamatan, kota, kode pos" />
+                                    <ValidationMessage For="() => form.FullAddress" />
+                                </div>
+
+                                <div class="field">
+                                    <label for="catatan">Catatan untuk pengantar</label>
+                                    <InputText id="catatan" @bind-Value="form.Notes" placeholder="Patokan, warna pagar" />
+                                    <ValidationMessage For="() => form.Notes" />
+                                </div>
+
+                                <label class="check">
+                                    <InputCheckbox @bind-Value="form.IsDefault" />
+                                    <span>Jadikan alamat utama</span>
+                                </label>
+
+                                <div class="editor__actions">
+                                    <button type="submit" class="btn btn--primary" disabled="@menyimpan">
+                                        @(menyimpan ? "Menyimpan…" : "Simpan")
+                                    </button>
+                                    <button type="button" class="btn btn--outline" @onclick="Tutup">Batal</button>
+                                </div>
+                            </EditForm>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="editor__actions">
+                            <button type="button" class="btn btn--primary" @onclick="Baru">
+                                @Icons.Plus Tambah alamat
+                            </button>
+                        </div>
+                    }
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@code {
+    private bool ready;
+    private bool memuat = true;
+    private bool membuka;
+    private bool menyimpan;
+    private string? error;
+    private Guid? sibuk;
+    private Guid? menyunting;
+
+    private List<AddressResponse> daftar = [];
+    private AddressForm form = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+
+        if (!Auth.IsAuthenticated)
+        {
+            Nav.NavigateTo($"/masuk?returnUrl={Uri.EscapeDataString("/akun/alamat")}");
+            return;
+        }
+
+        if (Routes.StaffPanel(Auth.User?.Role) is { } panel)
+        {
+            Nav.NavigateTo(panel, replace: true);
+            return;
+        }
+
+        ready = true;
+        await Muat();
+    }
+
+    private async Task Muat()
+    {
+        memuat = true;
+        daftar = [.. await Api.GetAddressesAsync()];
+        memuat = false;
+    }
+
+    private void Baru()
+    {
+        menyunting = null;
+        form = new AddressForm { IsDefault = daftar.Count == 0 };
+        membuka = true;
+        error = null;
+    }
+
+    private void Sunting(AddressResponse a)
+    {
+        menyunting = a.Id;
+        form = new AddressForm
+        {
+            Label         = a.Label,
+            RecipientName = a.RecipientName,
+            Phone         = a.Phone,
+            FullAddress   = a.FullAddress,
+            Notes         = a.Notes,
+            IsDefault     = a.IsDefault
+        };
+        membuka = true;
+        error = null;
+    }
+
+    private void Tutup()
+    {
+        membuka = false;
+        menyunting = null;
+        error = null;
+    }
+
+    private async Task Simpan()
+    {
+        menyimpan = true;
+        var (saved, apiError) = await Api.SaveAddressAsync(new SaveAddressRequest
+        {
+            Label         = form.Label.Trim(),
+            RecipientName = form.RecipientName.Trim(),
+            Phone         = form.Phone.Trim(),
+            FullAddress   = form.FullAddress.Trim(),
+            Notes         = string.IsNullOrWhiteSpace(form.Notes) ? null : form.Notes.Trim(),
+            IsDefault     = form.IsDefault
+        }, menyunting);
+        menyimpan = false;
+
+        if (saved is null)
+        {
+            error = apiError;
+            return;
+        }
+
+        Tutup();
+        await Muat();
+    }
+
+    private async Task JadikanUtama(Guid id)
+    {
+        sibuk = id;
+        error = await Api.MakeAddressDefaultAsync(id);
+        sibuk = null;
+
+        if (error is null)
+        {
+            await Muat();
+        }
+    }
+
+    private async Task Hapus(Guid id)
+    {
+        sibuk = id;
+        error = await Api.RemoveAddressAsync(id);
+        sibuk = null;
+
+        if (error is null)
+        {
+            await Muat();
+        }
+    }
+
+    private sealed class AddressForm
+    {
+        [Required(ErrorMessage = "Nama alamat wajib diisi.")]
+        [StringLength(40, MinimumLength = 2, ErrorMessage = "Nama alamat 2–40 karakter.")]
+        public string Label { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Nama penerima wajib diisi.")]
+        [StringLength(120, MinimumLength = 2, ErrorMessage = "Nama penerima 2–120 karakter.")]
+        public string RecipientName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Nomor telepon wajib diisi.")]
+        [StringLength(30, MinimumLength = 6, ErrorMessage = "Nomor telepon 6–30 karakter.")]
+        public string Phone { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Alamat lengkap wajib diisi.")]
+        [StringLength(500, MinimumLength = 10, ErrorMessage = "Alamat lengkap 10–500 karakter.")]
+        public string FullAddress { get; set; } = string.Empty;
+
+        [StringLength(200, ErrorMessage = "Catatan maksimal 200 karakter.")]
+        public string? Notes { get; set; }
+
+        public bool IsDefault { get; set; }
+    }
+}

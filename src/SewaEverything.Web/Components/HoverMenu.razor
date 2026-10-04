@@ -1,0 +1,68 @@
+<div class="hovermenu @(open ? "hovermenu--open" : null) @Class"
+     @onmouseenter="Open" @onmouseleave="Close">
+    @if (Href is null)
+    {
+        <button type="button" class="hovermenu__btn" @onclick="Toggle"
+                aria-haspopup="true" aria-expanded="@(open ? "true" : "false")"
+                title="@Title" aria-label="@Title">
+            @Trigger
+        </button>
+    }
+    else
+    {
+        <a class="hovermenu__btn" href="@Href"
+           aria-haspopup="true" aria-expanded="@(open ? "true" : "false")"
+           title="@Title" aria-label="@Title">
+            @Trigger
+        </a>
+    }
+
+    <div class="hovermenu__pop">
+        <div class="hovermenu__card">
+            @if (pernahDibuka)
+            {
+                @ChildContent
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public RenderFragment Trigger { get; set; } = default!;
+    [Parameter, EditorRequired] public RenderFragment ChildContent { get; set; } = default!;
+    [Parameter] public string? Href { get; set; }
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public EventCallback OnOpened { get; set; }
+
+    private bool open;
+
+    private bool pernahDibuka;
+
+    public void Shut() => open = false;
+
+    private async Task Open()
+    {
+        if (open)
+        {
+            return;
+        }
+
+        open = true;
+        pernahDibuka = true;
+        await OnOpened.InvokeAsync();
+    }
+
+    private void Close() => open = false;
+
+    private async Task Toggle()
+    {
+        if (open)
+        {
+            open = false;
+            return;
+        }
+
+        await Open();
+    }
+}

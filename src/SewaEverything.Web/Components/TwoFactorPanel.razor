@@ -1,0 +1,279 @@
+@inject SewaApi Api
+
+@if (loading)
+{
+    <Skeleton Bentuk="editor" Jumlah="2" />
+}
+else if (status is null)
+{
+    <div class="state">
+        <h3>Gagal memuat</h3>
+        <p>Server tidak menjawab.</p>
+        <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+    </div>
+}
+else if (recoveryCodes is not null)
+{
+    <div class="notice notice--warning">
+        <span class="notice__icon">@Icons.Alert</span>
+        <div>
+            <div class="notice__title">Simpan kode pemulihan sekarang</div>
+            <p>Kode ini hanya ditampilkan satu kali. Tanpa salah satunya, ponsel yang hilang berarti akun yang hilang.</p>
+        </div>
+    </div>
+
+    <div class="card editor__section">
+        @foreach (var kode in recoveryCodes)
+        {
+            <div class="ref">@kode</div>
+        }
+    </div>
+
+    <button class="btn btn--primary" @onclick="SelesaiMenyimpan">Sudah saya simpan</button>
+}
+else if (setup is not null)
+{
+    <div class="card editor__section">
+        <p class="field__hint">
+            Masukkan kunci ini secara manual di aplikasi autentikator (Google Authenticator, Aegis,
+            1Password, dan sejenisnya).
+        </p>
+
+        <div class="info-row">
+            <span class="k">Kunci</span>
+            <span class="ref ref--wrap">@setup.Secret</span>
+        </div>
+        <div class="info-row">
+            <span class="k">Tautan otpauth</span>
+            <span class="ref ref--wrap">@setup.Uri</span>
+        </div>
+    </div>
+
+    <EditForm Model="kodeForm" OnValidSubmit="Nyalakan" class="form">
+        <DataAnnotationsValidator />
+        @if (error is not null)
+        {
+            <div class="form__alert" role="alert">@error</div>
+        }
+
+        <div class="field">
+            <label for="kode">Kode dari aplikasi</label>
+            <InputText id="kode" @bind-Value="kodeForm.Code" inputmode="numeric"
+                       autocomplete="one-time-code" placeholder="123456" />
+            <ValidationMessage For="() => kodeForm.Code" />
+            <p class="field__hint">Membuktikan aplikasinya sudah menyimpan kunci yang benar.</p>
+        </div>
+
+        <button type="submit" class="btn btn--primary" disabled="@busy">
+            @(busy ? "Memproses…" : "Nyalakan")
+        </button>
+        <button type="button" class="btn btn--outline" @onclick="Batal" disabled="@busy">Batal</button>
+    </EditForm>
+}
+else
+{
+    <div class="card editor__section">
+        <div class="info-row">
+            <span class="k">Verifikasi dua langkah</span>
+            <span class="tag @(status.Enabled ? "tag--on" : "tag--off")">
+                @(status.Enabled ? "Aktif" : "Tidak aktif")
+            </span>
+        </div>
+        @if (status.Enabled)
+        {
+            <div class="info-row">
+                <span class="k">Aktif sejak</span>
+                <span>@Format.Waktu(status.EnabledAt!.Value)</span>
+            </div>
+            <div class="info-row">
+                <span class="k">Kode pemulihan tersisa</span>
+                <span>@status.RecoveryCodesLeft</span>
+            </div>
+        }
+    </div>
+
+    @if (status.Enabled)
+    {
+        @if (status.RecoveryCodesLeft == 0)
+        {
+            <div class="notice notice--warning">
+                <span class="notice__icon">@Icons.Alert</span>
+                <div>
+                    <div class="notice__title">Kode pemulihan habis</div>
+                    <p>Ponsel yang hilang sekarang berarti akun yang hilang. Matikan lalu nyalakan lagi untuk mendapat kode baru.</p>
+                </div>
+            </div>
+        }
+
+        <EditForm Model="matiForm" OnValidSubmit="Matikan" class="form">
+            <DataAnnotationsValidator />
+            @if (error is not null)
+            {
+                <div class="form__alert" role="alert">@error</div>
+            }
+
+            <div class="field">
+                <label for="sandi-mati">Kata sandi</label>
+                <PasswordField Id="sandi-mati" @bind-Value="matiForm.Password" />
+                <ValidationMessage For="() => matiForm.Password" />
+            </div>
+            <div class="field">
+                <label for="kode-mati">Kode autentikator</label>
+                <InputText id="kode-mati" @bind-Value="matiForm.Code" inputmode="numeric"
+                           autocomplete="one-time-code" placeholder="123456" />
+                <ValidationMessage For="() => matiForm.Code" />
+                <p class="field__hint">Kode pemulihan juga diterima, dan yang terpakai ikut hangus.</p>
+            </div>
+
+            <button type="submit" class="btn btn--primary" disabled="@busy">
+                @(busy ? "Memproses…" : "Matikan verifikasi dua langkah")
+            </button>
+        </EditForm>
+    }
+    else
+    {
+        <EditForm Model="mulaiForm" OnValidSubmit="Mulai" class="form">
+            <DataAnnotationsValidator />
+            @if (error is not null)
+            {
+                <div class="form__alert" role="alert">@error</div>
+            }
+
+            <div class="field">
+                <label for="sandi">Kata sandi</label>
+                <PasswordField Id="sandi" @bind-Value="mulaiForm.Password" />
+                <ValidationMessage For="() => mulaiForm.Password" />
+                <p class="field__hint">Diminta lagi supaya token yang dicuri tidak dapat memasang autentikatornya sendiri.</p>
+            </div>
+
+            <button type="submit" class="btn btn--primary" disabled="@busy">
+                @(busy ? "Memproses…" : "Nyalakan verifikasi dua langkah")
+            </button>
+        </EditForm>
+    }
+}
+
+@code {
+    private bool loading = true;
+    private bool busy;
+    private string? error;
+
+    private TotpStatusResponse? status;
+    private TotpSetupResponse? setup;
+    private IReadOnlyList<string>? recoveryCodes;
+
+    private readonly SandiForm mulaiForm = new();
+    private readonly KodeForm kodeForm = new();
+    private readonly MatiForm matiForm = new();
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load()
+    {
+        loading = true;
+        error = null;
+
+        try { status = await Api.GetTotpStatusAsync(); }
+        catch (HttpRequestException) { status = null; }
+
+        loading = false;
+    }
+
+    private async Task Mulai()
+    {
+        busy = true;
+        error = null;
+
+        var (hasil, err) = await Api.StartTotpSetupAsync(
+            new TotpSetupRequest { Password = mulaiForm.Password });
+
+        busy = false;
+        mulaiForm.Password = string.Empty;
+
+        if (hasil is null)
+        {
+            error = err ?? "Gagal memulai. Coba lagi.";
+            return;
+        }
+
+        setup = hasil;
+    }
+
+    private async Task Nyalakan()
+    {
+        busy = true;
+        error = null;
+
+        var (kode, err) = await Api.EnableTotpAsync(
+            new TotpCodeRequest { Code = kodeForm.Code.Trim() });
+
+        busy = false;
+        kodeForm.Code = string.Empty;
+
+        if (kode is null)
+        {
+            error = err ?? "Gagal menyalakan. Coba lagi.";
+            return;
+        }
+
+        setup = null;
+        recoveryCodes = kode;
+    }
+
+    private async Task Matikan()
+    {
+        busy = true;
+        error = null;
+
+        var err = await Api.DisableTotpAsync(new TotpDisableRequest
+        {
+            Password = matiForm.Password,
+            Code = matiForm.Code.Trim()
+        });
+
+        busy = false;
+        matiForm.Password = string.Empty;
+        matiForm.Code = string.Empty;
+
+        if (err is not null)
+        {
+            error = err;
+            return;
+        }
+
+        await Load();
+    }
+
+    private void Batal()
+    {
+        setup = null;
+        error = null;
+    }
+
+    private async Task SelesaiMenyimpan()
+    {
+        recoveryCodes = null;
+        await Load();
+    }
+
+    private sealed class SandiForm
+    {
+        [Required(ErrorMessage = "Kata sandi wajib diisi.")]
+        public string Password { get; set; } = string.Empty;
+    }
+
+    private sealed class KodeForm
+    {
+        [Required(ErrorMessage = "Kode autentikasi wajib diisi.")]
+        public string Code { get; set; } = string.Empty;
+    }
+
+    private sealed class MatiForm
+    {
+        [Required(ErrorMessage = "Kata sandi wajib diisi.")]
+        public string Password { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Kode autentikasi wajib diisi.")]
+        public string Code { get; set; } = string.Empty;
+    }
+}

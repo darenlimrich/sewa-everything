@@ -1,0 +1,6 @@
+@SewaEverything.Api_HostAddress = http://localhost:5288
+
+GET {{SewaEverything.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

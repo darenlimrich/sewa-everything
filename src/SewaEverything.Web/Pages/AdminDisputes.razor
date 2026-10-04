@@ -1,0 +1,194 @@
+@page "/admin/sengketa"
+@layout AdminOnlyLayout
+@inject SewaApi Api
+@inject LiveState Live
+@implements IDisposable
+
+<PageTitle>Sengketa — Sewaku</PageTitle>
+
+<div class="panel-head">
+    <h1 class="page-title">Antrean sengketa</h1>
+    <p>Potongan deposit untuk pemilik ditentukan oleh admin.</p>
+</div>
+
+@if (loading)
+{
+    <Skeleton Bentuk="tabel" Kolom="5" Jumlah="3" />
+}
+else if (error)
+{
+    <div class="state">
+        <h3>Gagal memuat</h3>
+        <p>Server tidak menjawab.</p>
+        <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+    </div>
+}
+else if (disputes.Count == 0)
+{
+    <div class="state state--flush">
+        <h3>Antrean kosong</h3>
+        <p>Tidak ada sengketa yang menunggu.</p>
+    </div>
+}
+else
+{
+    <div class="card table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Barang &amp; periode</th>
+                    <th>Penyewa</th>
+                    <th>Pemilik</th>
+                    <th class="num">Deposit tertagih</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var d in disputes)
+                {
+                    <tr>
+                        <td>
+                            <div class="table__main">@(d.ItemTitle ?? "Barang tidak tercatat")</div>
+                            <div class="table__sub">
+                                @if (d.StartsAt is { } mulai && d.EndsAt is { } selesai)
+                                {
+                                    @Format.Range(mulai, selesai)<text> · </text>
+                                }
+                                <span class="ref">@d.BookingReference</span>
+                            </div>
+                        </td>
+                        <td>@(d.RenterName ?? "—")</td>
+                        <td>@(d.SellerName ?? "—")</td>
+                        <td class="num price">@Format.Rupiah(d.DepositCollected)</td>
+                        <td class="table__actions">
+                            @if (resolvingId != d.Id)
+                            {
+                                <button class="btn btn--outline btn--sm" @onclick="() => BeginResolve(d.Id)">Putuskan</button>
+                            }
+                        </td>
+                    </tr>
+                    <tr class="table__panel">
+                        <td colspan="5">
+                            <p class="table__note">
+                                <b>@(d.RaisedByName ?? "Pihak tidak tercatat")</b>@if (d.RaisedByRole is { } peran)
+                                {<span class="muted"> (@Labels.Role(peran))</span>}<text> — </text>@d.Reason
+                                <span class="muted nowrap"> · diajukan @Format.Tanggal(d.CreatedAt)</span>
+                            </p>
+                            @if (resolvingId == d.Id)
+                            {
+                                <div class="confirm">
+                                    <div class="field-row">
+                                        <div class="field">
+                                            <label for="@($"potong-{d.Id}")">Potongan untuk pemilik</label>
+                                            <RupiahInput id="@($"potong-{d.Id}")" @bind-Value="deduction" />
+                                            <span class="field__hint">
+                                                0 = deposit kembali penuh ke penyewa. Maksimal @Format.Rupiah(d.DepositCollected).
+                                            </span>
+                                        </div>
+                                        <div class="field">
+                                            <label for="@($"catatan-{d.Id}")">Catatan keputusan</label>
+                                            <textarea id="@($"catatan-{d.Id}")" rows="2" maxlength="1000" @bind="resolution"
+                                                      placeholder="Alasan singkat putusan"></textarea>
+                                            <span class="field__hint">Wajib diisi. Putusan tidak dapat diubah.</span>
+                                        </div>
+                                    </div>
+                                    @if (actionError is not null)
+                                    {
+                                        <div class="form__alert" role="alert">@actionError</div>
+                                    }
+                                    <div class="confirm__actions">
+                                        <button class="btn btn--outline" @onclick="CancelResolve" disabled="@acting">Batal</button>
+                                        <button class="btn btn--primary" @onclick="() => Resolve(d)" disabled="@acting">
+                                            @(acting ? "Memproses…" : "Putuskan sengketa")
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+@code {
+    private IReadOnlyList<DisputeResponse> disputes = [];
+    private bool loading = true;
+    private bool error;
+    private Guid? resolvingId;
+    private decimal deduction;
+    private string? resolution;
+    private bool acting;
+    private string? actionError;
+
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        if (true)
+        {
+            await Load();
+            StateHasChanged();
+        }
+    });
+
+    public void Dispose() => Live.Changed -= OnLive;
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load()
+    {
+        loading = true;
+        error = false;
+        try
+        {
+            disputes = await Api.GetDisputesAsync();
+        }
+        catch
+        {
+            error = true;
+            disputes = [];
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+    private void BeginResolve(Guid id)
+    {
+        resolvingId = id;
+        deduction = 0;
+        resolution = null;
+        actionError = null;
+    }
+    private void CancelResolve()
+    {
+        resolvingId = null;
+        actionError = null;
+    }
+    private async Task Resolve(DisputeResponse dispute)
+    {
+        if (string.IsNullOrWhiteSpace(resolution))
+        {
+            actionError = "Catatan keputusan wajib diisi.";
+            return;
+        }
+        if (deduction < 0 || deduction > dispute.DepositCollected)
+        {
+            actionError = $"Potongan harus antara Rp 0 dan {Format.Rupiah(dispute.DepositCollected)}.";
+            return;
+        }
+        acting = true;
+        actionError = null;
+        var (resolved, err) = await Api.ResolveDisputeAsync(dispute.Id, deduction, resolution.Trim());
+
+        acting = false;
+        if (resolved is null)
+        {
+            actionError = err ?? "Gagal memutus sengketa.";
+            return;
+        }
+
+        disputes = disputes.Where(x => x.Id != dispute.Id).ToList();
+        resolvingId = null;
+    }
+}

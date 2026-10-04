@@ -1,0 +1,39 @@
+@inject IJSRuntime JS
+
+@if (TotalPages > 1)
+{
+    <div class="pager">
+        <button class="btn btn--outline btn--sm" disabled="@(Page <= 1 || Busy)"
+                @onclick="() => OnGoTo.InvokeAsync(Page - 1)">
+            @Icons.ChevronLeft Sebelumnya
+        </button>
+        <span class="pager__info">Halaman @Page dari @TotalPages · @Total @Noun</span>
+        <button class="btn btn--outline btn--sm" disabled="@(Page >= TotalPages || Busy)"
+                @onclick="() => OnGoTo.InvokeAsync(Page + 1)">
+            Berikutnya @Icons.ChevronRight
+        </button>
+    </div>
+}
+@code {
+    [Parameter, EditorRequired] public int Page { get; set; }
+    [Parameter, EditorRequired] public int TotalPages { get; set; }
+    [Parameter, EditorRequired] public int Total { get; set; }
+    [Parameter] public string Noun { get; set; } = "baris";
+    [Parameter] public bool Busy { get; set; }
+
+    [Parameter, EditorRequired] public EventCallback<int> OnGoTo { get; set; }
+
+    [Parameter] public bool Jump { get; set; }
+    [Parameter] public EventCallback OnJumped { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!Jump)
+        {
+            return;
+        }
+
+        await PageTop.ScrollAsync(JS);
+        await OnJumped.InvokeAsync();
+    }
+}

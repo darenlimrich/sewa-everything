@@ -1,0 +1,292 @@
+@page "/owner/admin"
+@layout AdminLayout
+@inject SewaApi Api
+@inject AuthState Auth
+
+<PageTitle>Akun admin — Sewaku</PageTitle>
+
+<h1 class="page-title">Akun admin</h1>
+
+@if (Auth.User?.Role != "owner")
+{
+    <div class="state">
+        <h3>Khusus superadmin</h3>
+        <p>Hanya superadmin yang boleh mengangkat dan mencabut admin.</p>
+    </div>
+}
+else
+{
+    <p class="editor__hint">Admin tidak dapat mendaftar sendiri. Akses dicabut, bukan dihapus.</p>
+
+    @if (loading)
+    {
+        <Skeleton Bentuk="tabel" Kolom="5" Jumlah="3" />
+    }
+    else if (loadError)
+    {
+        <div class="state">
+            <h3>Gagal memuat</h3>
+            <p>Server tidak menjawab.</p>
+            <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+        </div>
+    }
+    else
+    {
+        @if (actionError is not null)
+        {
+            <div class="form__alert" role="alert">@actionError</div>
+        }
+
+        @if (admins.Count == 0)
+        {
+            <div class="state state--flush">
+                <h3>Belum ada admin</h3>
+                <p>Angkat admin pertama lewat formulir di bawah.</p>
+            </div>
+        }
+        else
+        {
+            <div class="card table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Nama</th>
+                            <th>Kontak</th>
+                            <th>Status</th>
+                            <th class="nowrap">Bergabung</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in admins)
+                        {
+                            <tr>
+                                <td class="table__main">@a.Name</td>
+                                <td>
+                                    <div>@a.Email</div>
+                                    @if (!string.IsNullOrWhiteSpace(a.Phone))
+                                    {
+                                        <div class="table__sub">@a.Phone</div>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="tag @(a.IsActive ? "tag--ok" : "tag--off")">
+                                        @(a.IsActive ? "Aktif" : "Dicabut")
+                                    </span>
+                                    @if (a.DeactivatedAt is { } at)
+                                    {
+                                        <div class="table__sub">@Format.Tanggal(at)</div>
+                                    }
+                                    @if (a.TwoFactorEnabled)
+                                    {
+                                        <div class="table__sub">2FA aktif</div>
+                                    }
+                                </td>
+                                <td class="nowrap table__sub">@Format.Tanggal(a.CreatedAt)</td>
+                                <td>
+                                    <div class="actions">
+                                        @if (confirmingId == a.Id)
+                                        {
+                                            <button class="btn btn--outline btn--sm" disabled="@acting"
+                                                    @onclick="() => confirmingId = null">Batal</button>
+                                            <button class="btn btn--outline btn--sm" disabled="@acting"
+                                                    @onclick="() => SetAccess(a, false)">
+                                                @(acting ? "…" : "Ya, cabut")
+                                            </button>
+                                        }
+                                        else if (lepasId == a.Id)
+                                        {
+                                            <button class="btn btn--outline btn--sm" disabled="@acting"
+                                                    @onclick="() => lepasId = null">Batal</button>
+                                            <button class="btn btn--outline btn--sm" disabled="@acting"
+                                                    @onclick="() => ResetTotp(a)">
+                                                @(acting ? "…" : "Ya, lepas")
+                                            </button>
+                                        }
+                                        else if (a.IsActive)
+                                        {
+                                            @if (a.TwoFactorEnabled)
+                                            {
+                                                <button class="btn btn--outline btn--sm" disabled="@acting"
+                                                        @onclick="() => lepasId = a.Id">Lepas 2FA</button>
+                                            }
+                                            <button class="btn btn--outline btn--sm" disabled="@acting"
+                                                    @onclick="() => confirmingId = a.Id">Cabut akses</button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn--outline btn--sm" disabled="@acting"
+                                                    @onclick="() => SetAccess(a, true)">Pulihkan</button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (confirmingId is not null)
+            {
+                <p class="editor__empty">Berlaku seketika; sesi yang sedang berjalan ikut berhenti.</p>
+            }
+            @if (lepasId is not null)
+            {
+                <p class="editor__empty">Untuk admin yang kehilangan ponsel dan kode pemulihannya. Kata sandinya tidak berubah.</p>
+            }
+        }
+        <h2 class="section-sub">Angkat admin baru</h2>
+        <div class="card editor__section">
+            <EditForm Model="model" OnValidSubmit="Create" class="form">
+                <DataAnnotationsValidator />
+                @if (createError is not null)
+                {
+                    <div class="form__alert" role="alert">@createError</div>
+                }
+                <div class="field-row">
+                    <div class="field">
+                        <label for="nama">Nama</label>
+                        <InputText id="nama" @bind-Value="model.Name" autocomplete="off" />
+                        <ValidationMessage For="() => model.Name" />
+                    </div>
+                    <div class="field">
+                        <label for="email">Email</label>
+                        <InputText id="email" type="email" @bind-Value="model.Email" autocomplete="off" />
+                        <ValidationMessage For="() => model.Email" />
+                    </div>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label for="sandi">Kata sandi awal</label>
+                        <PasswordField Id="sandi" @bind-Value="model.Password" Autocomplete="new-password" />
+                        <ValidationMessage For="() => model.Password" />
+                        <span class="field__hint">@PasswordPolicy.Aturan Simpan sekarang; tidak dapat dilihat lagi.</span>
+                    </div>
+                    <div class="field">
+                        <label for="telepon">Telepon (opsional)</label>
+                        <InputText id="telepon" @bind-Value="model.Phone" autocomplete="off" />
+                        <ValidationMessage For="() => model.Phone" />
+                    </div>
+                </div>
+                <div class="editor__save">
+                    <button type="submit" class="btn btn--primary" disabled="@creating">
+                        @(creating ? "Menyimpan…" : "Angkat admin")
+                    </button>
+                    @if (created is not null)
+                    {
+                        <span class="editor__saved">@Icons.Shield @created siap dipakai</span>
+                    }
+                </div>
+            </EditForm>
+        </div>
+    }
+}
+@code {
+    private IReadOnlyList<AdminAccountResponse> admins = [];
+    private bool loading = true;
+    private bool loadError;
+    private readonly AdminForm model = new();
+    private bool creating;
+    private string? createError;
+    private string? created;
+    private Guid? confirmingId;
+    private Guid? lepasId;
+    private bool acting;
+    private string? actionError;
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+        if (Auth.User?.Role == "owner")
+        {
+            await Load();
+        }
+        else
+        {
+            loading = false;
+        }
+    }
+    private async Task Load()
+    {
+        loading = true;
+        loadError = false;
+        try
+        {
+            admins = await Api.GetAdminsAsync();
+        }
+        catch
+        {
+            loadError = true;
+            admins = [];
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+    private async Task Create()
+    {
+        creating = true;
+        createError = null;
+        created = null;
+        var (admin, err) = await Api.CreateAdminAsync(new CreateAdminRequest
+        {
+            Name     = model.Name,
+            Email    = model.Email,
+            Password = model.Password,
+            Phone    = string.IsNullOrWhiteSpace(model.Phone) ? null : model.Phone
+        });
+        creating = false;
+        if (admin is null)
+        {
+            createError = err ?? "Gagal mengangkat admin.";
+            return;
+        }
+        created = admin.Name;
+        admins = [.. admins, admin];
+        model.Name = model.Email = model.Password = string.Empty;
+        model.Phone = null;
+    }
+    private async Task ResetTotp(AdminAccountResponse admin)
+    {
+        acting = true;
+        actionError = null;
+        var (updated, err) = await Api.ResetAdminTotpAsync(admin.Id);
+        acting = false;
+        lepasId = null;
+        if (updated is null)
+        {
+            actionError = err ?? "Gagal melepas verifikasi dua langkah.";
+            return;
+        }
+        admins = [.. admins.Select(a => a.Id == updated.Id ? updated : a)];
+    }
+
+    private async Task SetAccess(AdminAccountResponse admin, bool active)
+    {
+        acting = true;
+        actionError = null;
+        var (updated, err) = await Api.SetAdminAccessAsync(admin.Id, active);
+        acting = false;
+        confirmingId = null;
+        if (updated is null)
+        {
+            actionError = err ?? "Gagal mengubah akses admin.";
+            return;
+        }
+        admins = [.. admins.Select(a => a.Id == updated.Id ? updated : a)];
+    }
+
+    private sealed class AdminForm
+    {
+        [Required(ErrorMessage = "Nama wajib diisi.")]
+        [StringLength(120, MinimumLength = 2, ErrorMessage = "Nama harus 2–120 karakter.")]
+        public string Name { get; set; } = string.Empty;
+        [Required(ErrorMessage = "Email wajib diisi.")]
+        [EmailAddress(ErrorMessage = "Format email tidak valid.")]
+        public string Email { get; set; } = string.Empty;
+        [Required(ErrorMessage = "Kata sandi wajib diisi.")]
+        [StrongPassword(EmailProperty = nameof(Email), NameProperty = nameof(Name))]
+        public string Password { get; set; } = string.Empty;
+        [Phone(ErrorMessage = "Format nomor telepon tidak valid.")]
+        public string? Phone { get; set; }
+    }
+}

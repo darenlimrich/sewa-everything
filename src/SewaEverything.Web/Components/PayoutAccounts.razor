@@ -1,0 +1,218 @@
+@inject SewaApi Api
+
+<p class="editor__hint">@Hint</p>
+@if (loading)
+{
+    <Skeleton Bentuk="baris" Jumlah="2" />
+}
+else if (error)
+{
+    <div class="state">
+        <h3>Gagal memuat</h3>
+        <p>Server tidak menjawab.</p>
+        <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+    </div>
+}
+else
+{
+    @if (accounts.Count == 0)
+    {
+        <div class="state state--flush">
+            <h3>Belum ada rekening</h3>
+            <p>@EmptyHint</p>
+        </div>
+    }
+    else
+    {
+        <div class="booking-list">
+            @foreach (var acc in accounts)
+            {
+                <div class="card account-row">
+                    <div class="account-row__main">
+                        <div class="account-row__title">
+                            @acc.ProviderCode <span class="account-row__num">@acc.AccountNumberMasked</span>
+                            @if (acc.IsDefault)
+                            {
+                                <span class="tag tag--on">Utama</span>
+                            }
+                        </div>
+                        <div class="account-row__meta">@Labels.PayoutKind(acc.Kind) · @acc.AccountHolder</div>
+                    </div>
+                    <div class="account-row__actions">
+                        @if (!acc.IsDefault)
+                        {
+                            <button class="btn btn--outline btn--sm" @onclick="() => MakeDefault(acc.Id)" disabled="@busy">
+                                Jadikan utama
+                            </button>
+                        }
+                        @if (confirmingDeleteId == acc.Id)
+                        {
+                            <button class="btn btn--outline btn--sm" @onclick="() => confirmingDeleteId = null" disabled="@busy">Batal</button>
+                            <button class="btn btn--primary btn--sm" @onclick="() => Delete(acc.Id)" disabled="@busy">Hapus</button>
+                        }
+                        else
+                        {
+                            <button class="icon-btn" title="Hapus rekening" @onclick="() => confirmingDeleteId = acc.Id" disabled="@busy">
+                                @Icons.Trash
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    @if (actionError is not null)
+    {
+        <div class="form__alert" role="alert">@actionError</div>
+    }
+    <section class="card editor__section editor__section--spaced">
+        <h2 class="section-sub">Tambah rekening</h2>
+        <EditForm Model="model" OnValidSubmit="Add" class="form">
+            <DataAnnotationsValidator />
+
+            @if (addError is not null)
+            {
+                <div class="form__alert" role="alert">@addError</div>
+            }
+            <div class="field-row">
+                <div class="field">
+                    <label for="kind">Jenis</label>
+                    <InputSelect id="kind" @bind-Value="model.Kind">
+                        <option value="bank">Bank</option>
+                        <option value="ewallet">E-wallet</option>
+                    </InputSelect>
+                </div>
+                <div class="field">
+                    <label for="provider">@(model.Kind == "ewallet" ? "Kode e-wallet" : "Kode bank")</label>
+                    <InputText id="provider" @bind-Value="model.ProviderCode"
+                               placeholder="@(model.Kind == "ewallet" ? "mis. gopay" : "mis. BCA")" />
+                    <ValidationMessage For="() => model.ProviderCode" />
+                </div>
+            </div>
+            <div class="field">
+                <label for="number">Nomor rekening</label>
+                <InputText id="number" @bind-Value="model.AccountNumber" inputmode="numeric" autocomplete="off" />
+                <ValidationMessage For="() => model.AccountNumber" />
+            </div>
+
+            <div class="field">
+                <label for="holder">Nama pemilik rekening</label>
+                <InputText id="holder" @bind-Value="model.AccountHolder" autocomplete="off" />
+                <ValidationMessage For="() => model.AccountHolder" />
+            </div>
+
+            <label class="check">
+                <InputCheckbox @bind-Value="model.IsDefault" />
+                <span>Jadikan rekening utama</span>
+            </label>
+            <div class="editor__save">
+                <button type="submit" class="btn btn--primary" disabled="@adding">
+                    @(adding ? "Menyimpan…" : "Tambah rekening")
+                </button>
+            </div>
+        </EditForm>
+    </section>
+}
+@code {
+    [Parameter, EditorRequired] public string Hint { get; set; } = string.Empty;
+    [Parameter] public string EmptyHint { get; set; } = "Tambahkan rekening di bawah.";
+
+    [Parameter] public EventCallback<int> OnCountChanged { get; set; }
+    private IReadOnlyList<PayoutAccountResponse> accounts = [];
+    private bool loading = true;
+    private bool error;
+    private AccountForm model = new();
+    private bool adding;
+    private string? addError;
+    private Guid? confirmingDeleteId;
+    private bool acting;
+    private string? actionError;
+    private bool busy => acting || adding;
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load()
+    {
+        loading = true;
+        error = false;
+        try
+        {
+            accounts = await Api.GetPayoutAccountsAsync();
+            await OnCountChanged.InvokeAsync(accounts.Count);
+        }
+        catch
+        {
+            error = true;
+            accounts = [];
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+    private async Task Add()
+    {
+        adding = true;
+        addError = null;
+        var (account, err) = await Api.CreatePayoutAccountAsync(new CreatePayoutAccountRequest
+        {
+            Kind          = model.Kind,
+            ProviderCode  = model.ProviderCode.Trim(),
+            AccountNumber = model.AccountNumber.Trim(),
+            AccountHolder = model.AccountHolder.Trim(),
+            IsDefault     = model.IsDefault
+        });
+        adding = false;
+        if (account is null)
+        {
+            addError = err ?? "Gagal menambah rekening.";
+            return;
+        }
+
+        model = new AccountForm();
+        await Load();
+    }
+    private async Task MakeDefault(Guid id)
+    {
+        acting = true;
+        actionError = null;
+        var (account, err) = await Api.MakeDefaultPayoutAccountAsync(id);
+        acting = false;
+        if (account is null)
+        {
+            actionError = err ?? "Gagal mengubah rekening utama.";
+            return;
+        }
+
+        await Load();
+    }
+    private async Task Delete(Guid id)
+    {
+        acting = true;
+        actionError = null;
+        var err = await Api.DeletePayoutAccountAsync(id);
+        acting = false;
+        confirmingDeleteId = null;
+        if (err is not null)
+        {
+            actionError = err;
+            return;
+        }
+
+        await Load();
+    }
+    private sealed class AccountForm
+    {
+        [Required(ErrorMessage = "Jenis rekening wajib diisi.")]
+        public string Kind { get; set; } = "bank";
+        [Required(ErrorMessage = "Kode bank atau e-wallet wajib diisi.")]
+        [StringLength(30, MinimumLength = 2, ErrorMessage = "Kode harus 2–30 karakter.")]
+        public string ProviderCode { get; set; } = string.Empty;
+        [Required(ErrorMessage = "Nomor rekening wajib diisi.")]
+        [StringLength(40, MinimumLength = 4, ErrorMessage = "Nomor rekening harus 4–40 digit.")]
+        [RegularExpression("^[0-9]+$", ErrorMessage = "Nomor rekening hanya boleh berisi angka.")]
+        public string AccountNumber { get; set; } = string.Empty;
+        [Required(ErrorMessage = "Nama pemilik rekening wajib diisi.")]
+        [StringLength(120, MinimumLength = 2, ErrorMessage = "Nama pemilik harus 2–120 karakter.")]
+        public string AccountHolder { get; set; } = string.Empty;
+        public bool IsDefault { get; set; }
+    }
+}

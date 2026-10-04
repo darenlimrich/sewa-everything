@@ -1,0 +1,175 @@
+@page "/admin/pencairan"
+@layout AdminOnlyLayout
+@inject SewaApi Api
+@inject LiveState Live
+@implements IDisposable
+
+<PageTitle>Pencairan — Sewaku</PageTitle>
+
+<div class="panel-head">
+    <h1 class="page-title">Pencairan tertunda</h1>
+    <p>Tandai setelah dana benar-benar ditransfer.</p>
+</div>
+
+@if (loading)
+{
+    <Skeleton Bentuk="tabel" Kolom="6" Jumlah="3" />
+}
+else if (error)
+{
+    <div class="state">
+        <h3>Gagal memuat</h3>
+        <p>Server tidak menjawab.</p>
+        <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+    </div>
+}
+else if (payouts.Count == 0)
+{
+    <div class="state state--flush">
+        <h3>Antrean kosong</h3>
+        <p>Semua pencairan sudah dikirim.</p>
+    </div>
+}
+else
+{
+    <div class="card table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Kewajiban</th>
+                    <th>Penerima</th>
+                    <th>Tujuan transfer</th>
+                    <th class="num">Nominal</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in payouts)
+                {
+                    <tr>
+                        <td>
+                            <div class="table__main">@Labels.PaymentKind(p.Kind)</div>
+                            <div class="table__sub">
+                                <span class="ref">@p.Reference</span>
+                                <span class="nowrap">· @Format.Tanggal(p.CreatedAt)</span>
+                            </div>
+                            <div class="table__sub"><span class="ref">@p.BookingReference</span></div>
+                        </td>
+
+                        <td>
+                            @(p.CounterpartyName ?? "Penerima tidak tercatat")
+                            @if (!string.IsNullOrWhiteSpace(p.ItemTitle))
+                            {
+                                <div class="table__sub">@p.ItemTitle</div>
+                            }
+                        </td>
+                        <td>
+                            @if (p.DestinationNumberMasked is not null)
+                            {
+                                <div class="nowrap">@p.DestinationProvider @p.DestinationNumberMasked</div>
+                                <div class="table__sub">a.n. @p.DestinationHolder</div>
+                            }
+                            else
+                            {
+                                <div>@Labels.PayoutMethod(p.Method)</div>
+                            }
+                        </td>
+                        <td class="num price">@Format.Rupiah(p.Amount)</td>
+
+                        <td class="table__actions">
+                            @if (confirmingId == p.Id)
+                            {
+                                <button class="btn btn--outline btn--sm" @onclick="() => confirmingId = null" disabled="@acting">Batal</button>
+                                <button class="btn btn--primary btn--sm" @onclick="() => Settle(p.Id)" disabled="@acting">
+                                    @(acting ? "…" : "Konfirmasi")
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn--outline btn--sm" @onclick="() => confirmingId = p.Id" disabled="@acting">
+                                    Tandai sudah dikirim
+                                </button>
+                            }
+                        </td>
+                    </tr>
+                    @if (confirmingId == p.Id || errorId == p.Id)
+                    {
+                        <tr class="table__panel">
+                            <td colspan="5">
+                                @if (errorId == p.Id && actionError is not null)
+                                {
+                                    <div class="form__alert" role="alert">@actionError</div>
+                                }
+                                @if (confirmingId == p.Id)
+                                {
+                                    <p class="table__note">
+                                        Tindakan ini hanya mencatat, tidak mengirim dana. Tidak dapat dibatalkan.
+                                    </p>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+@code {
+    private IReadOnlyList<PendingPayoutResponse> payouts = [];
+    private bool loading = true;
+    private bool error;
+    private Guid? confirmingId;
+    private bool acting;
+    private string? actionError;
+    private Guid? errorId;
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        if (true)
+        {
+            await Load();
+            StateHasChanged();
+        }
+    });
+
+    public void Dispose() => Live.Changed -= OnLive;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        loading = true;
+        error = false;
+        try
+        {
+            payouts = await Api.GetPendingPayoutsAsync();
+        }
+        catch
+        {
+            error = true;
+            payouts = [];
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+    private async Task Settle(Guid id)
+    {
+        acting = true;
+        actionError = null;
+        errorId = null;
+        var (settled, err) = await Api.SettlePayoutAsync(id);
+
+        acting = false;
+        confirmingId = null;
+        if (settled is null)
+        {
+            actionError = err ?? "Gagal menandai pencairan.";
+            errorId = id;
+            return;
+        }
+        payouts = payouts.Where(x => x.Id != id).ToList();
+    }
+}

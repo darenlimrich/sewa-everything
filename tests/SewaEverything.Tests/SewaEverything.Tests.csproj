@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.10" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SewaEverything.Api\SewaEverything.Api.csproj" />
+    <!--
+      Klien bersama web + mobile. Isinya bukan tampilan melainkan aturan yang harus sama di kedua
+      platform (hari mana yang terisi, bentuk rentang yang dikirim, cara nominal & tanggal ditulis),
+      dan aturan itu sempat salah tanpa satu pun test menangkapnya. Test di sini murni unit — tidak
+      menyentuh database maupun HTTP.
+    -->
+    <ProjectReference Include="..\..\src\SewaEverything.Client\SewaEverything.Client.csproj" />
+    <ProjectReference Include="..\..\src\SewaEverything.Contracts\SewaEverything.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\SewaEverything.Infrastructure\SewaEverything.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\SewaEverything.Domain\SewaEverything.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

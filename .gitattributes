@@ -1,0 +1,8 @@
+# Normalkan akhir baris supaya diff tidak berisik antar mesin.
+* text=auto
+
+*.sql   text
+*.cs    text
+*.md    text
+*.json  text
+*.ps1   text eol=crlf

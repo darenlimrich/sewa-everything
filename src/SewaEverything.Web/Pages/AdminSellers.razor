@@ -1,0 +1,208 @@
+@page "/admin"
+@layout AdminOnlyLayout
+@inject SewaApi Api
+@inject LiveState Live
+@implements IDisposable
+
+<PageTitle>Verifikasi pemilik — Sewaku</PageTitle>
+
+<div class="panel-head">
+    <h1 class="page-title">Verifikasi pemilik</h1>
+    <p>Barang hanya tampil di katalog jika pemiliknya terverifikasi.</p>
+</div>
+
+<div class="chips">
+    <button type="button" class="chip @(showVerified ? null : "chip--active")"
+            @onclick="() => Switch(false)">Menunggu</button>
+    <button type="button" class="chip @(showVerified ? "chip--active" : null)"
+            @onclick="() => Switch(true)">Sudah terverifikasi</button>
+</div>
+@if (loading)
+{
+    <Skeleton Bentuk="tabel" Kolom="4" Jumlah="3" />
+}
+else if (error)
+{
+    <div class="state">
+        <h3>Gagal memuat</h3>
+        <p>Server tidak menjawab.</p>
+        <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+    </div>
+}
+else if (sellers.Count == 0)
+{
+    <div class="state state--flush">
+        <h3>@(showVerified ? "Belum ada yang terverifikasi" : "Antrean kosong")</h3>
+        <p>@(showVerified ? "Verifikasi dulu dari tab Menunggu." : "Semua pemilik sudah diverifikasi.")</p>
+        @if (!showVerified && (Live.PendingItems > 0 || Live.OpenDisputes > 0 || Live.PendingPayouts > 0))
+        {
+            <div class="seller-actions">
+                @if (Live.PendingItems > 0)
+                {
+                    <a class="btn btn--outline" href="/admin/listing">@Live.PendingItems listing menunggu verifikasi</a>
+                }
+                @if (Live.OpenDisputes > 0)
+                {
+                    <a class="btn btn--outline" href="/admin/sengketa">@Live.OpenDisputes sengketa menunggu diputus</a>
+                }
+                @if (Live.PendingPayouts > 0)
+                {
+                    <a class="btn btn--outline" href="/admin/pencairan">@Live.PendingPayouts pencairan belum dikirim</a>
+                }
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="card table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Pemilik</th>
+                    <th>Kontak</th>
+                    <th class="nowrap">Daftar</th>
+                    @if (showVerified)
+                    {
+                        <th class="nowrap">Lolos</th>
+                        <th class="num">Barang aktif</th>
+                    }
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in sellers)
+                {
+                    <tr>
+                        <td class="table__main">@s.Name</td>
+                        <td>
+                            @s.Email
+                            @if (!string.IsNullOrWhiteSpace(s.Phone))
+                            {
+                                <div class="table__sub">@s.Phone</div>
+                            }
+                        </td>
+                        <td class="nowrap">@Format.Tanggal(s.CreatedAt)</td>
+                        @if (showVerified)
+                        {
+                            <td class="nowrap">@(s.VerifiedAt is { } at ? Format.Tanggal(at) : "—")</td>
+                            <td class="num">@s.ActiveItemCount</td>
+                        }
+                        <td class="table__actions">
+                            @if (!s.IsVerified)
+                            {
+                                <button class="btn btn--outline btn--sm" disabled="@(busyId is not null)"
+                                        @onclick="() => SetVerification(s, approve: true)">
+                                    @(busyId == s.Id ? "Memproses…" : "Verifikasi")
+                                </button>
+                            }
+                            else if (revokingId == s.Id)
+                            {
+                                <button class="btn btn--outline btn--sm" disabled="@(busyId is not null)"
+                                        @onclick="() => revokingId = null">Batal</button>
+                                <button class="btn btn--outline btn--sm" disabled="@(busyId is not null)"
+                                        @onclick="() => SetVerification(s, approve: false)">
+                                    @(busyId == s.Id ? "Memproses…" : "Ya, cabut")
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn--outline btn--sm" disabled="@(busyId is not null)"
+                                        @onclick="() => revokingId = s.Id">Cabut verifikasi</button>
+                            }
+                        </td>
+                    </tr>
+                    @if (revokingId == s.Id || errorId == s.Id)
+                    {
+                        <tr class="table__panel">
+                            <td colspan="@ColSpan">
+                                @if (errorId == s.Id && actionError is not null)
+                                {
+                                    <div class="form__alert" role="alert">@actionError</div>
+                                }
+                                @if (revokingId == s.Id)
+                                {
+                                    <p class="table__note">
+                                        @(s.ActiveItemCount > 0
+                                            ? $"{s.ActiveItemCount} barang aktifnya hilang dari katalog. "
+                                            : "Belum ada barang aktif. ")
+                                        Sewa yang berjalan tidak berhenti. Dapat dipulihkan kapan saja.
+                                    </p>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+@code {
+    private IReadOnlyList<AdminSellerResponse> sellers = [];
+    private bool loading = true;
+    private bool error;
+    private bool showVerified;
+    private Guid? busyId;
+    private Guid? revokingId;
+    private string? actionError;
+    private Guid? errorId;
+    private int ColSpan => showVerified ? 6 : 4;
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        if (true)
+        {
+            await Load();
+            StateHasChanged();
+        }
+    });
+
+    public void Dispose() => Live.Changed -= OnLive;
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Switch(bool verified)
+    {
+        if (showVerified == verified) return;
+
+        showVerified = verified;
+        revokingId = null;
+        actionError = null;
+        errorId = null;
+        await Load();
+    }
+    private async Task Load()
+    {
+        loading = true;
+        error = false;
+        try
+        {
+            sellers = await Api.GetSellersAsync(verified: showVerified);
+        }
+        catch
+        {
+            error = true;
+            sellers = [];
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+    private async Task SetVerification(AdminSellerResponse seller, bool approve)
+    {
+        busyId = seller.Id;
+        actionError = null;
+        errorId = null;
+        var (updated, err) = await Api.VerifySellerAsync(seller.Id, approve);
+        busyId = null;
+        revokingId = null;
+        if (updated is null)
+        {
+            actionError = err ?? (approve ? "Gagal memverifikasi pemilik." : "Gagal mencabut verifikasi.");
+            errorId = seller.Id;
+            return;
+        }
+        sellers = sellers.Where(s => s.Id != seller.Id).ToList();
+    }
+}

@@ -1,0 +1,29 @@
+
+<nav class="breadcrumb" aria-label="Jejak halaman">
+    @for (var i = 0; i < Items.Count; i++)
+    {
+        var crumb = Items[i];
+
+        @if (i > 0)
+        {
+            <span class="breadcrumb__sep" aria-hidden="true">@Icons.ChevronRight</span>
+        }
+
+        @if (i == Items.Count - 1)
+        {
+            <span class="breadcrumb__current" aria-current="page">@crumb.Label</span>
+        }
+        else if (crumb.Href is null)
+        {
+            <span class="breadcrumb__link">@crumb.Label</span>
+        }
+        else
+        {
+            <a class="breadcrumb__link" href="@crumb.Href">@crumb.Label</a>
+        }
+    }
+</nav>
+@code {
+    public sealed record Crumb(string Label, string? Href = null);
+    [Parameter, EditorRequired] public IReadOnlyList<Crumb> Items { get; set; } = [];
+}

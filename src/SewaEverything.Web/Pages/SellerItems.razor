@@ -1,0 +1,105 @@
+@page "/jual/barang"
+@layout SellerLayout
+@implements IDisposable
+@inject SewaApi Api
+@inject LiveState Live
+
+<PageTitle>Daftar barang — Sewaku</PageTitle>
+
+<div class="seller-head">
+    <h1 class="page-title">Daftar barang</h1>
+    <a class="btn btn--primary" href="/jual/barang/baru">@Icons.Plus Pasang barang</a>
+</div>
+
+@if (loading)
+{
+    <Skeleton Bentuk="item" Jumlah="3" />
+}
+else if (error)
+{
+    <div class="state">
+        <h3>Gagal memuat</h3>
+        <p>Server tidak menjawab.</p>
+        <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+    </div>
+}
+else if (items.Count == 0)
+{
+    <div class="state">
+        <h3>Belum ada barang</h3>
+        <p>Pasang barang pertama Anda untuk mulai menyewakan.</p>
+        <a class="btn btn--primary" href="/jual/barang/baru">Pasang barang</a>
+    </div>
+}
+else
+{
+    <div class="booking-list">
+        @foreach (var item in items)
+        {
+            <a class="card item-row" href="@($"/jual/barang/{item.Id}")">
+                <div class="item-row__media">
+                    @if (Api.PhotoUrl(item.PrimaryPhotoUrl) is { } photo)
+                    {
+                        <img src="@photo" alt="" loading="lazy" />
+                    }
+                    else
+                    {
+                        <span class="placeholder">@Icons.Box</span>
+                    }
+                </div>
+                <div class="item-row__main">
+                    <div class="item-row__title">@item.Title</div>
+                    <div class="item-row__meta">
+                        @item.Category · <span class="price">@Format.Rupiah(item.Price)</span><span class="price-unit">@Format.PriceUnit(item.PriceUnit)</span>
+                    </div>
+                </div>
+                <div class="item-row__side">
+                    @{
+                        var state = Labels.ItemListingState(item.Status, item.SuspendedAt, item.ReviewStatus);
+                    }
+                    <span class="tag tag--@Labels.ItemStateTone(state)">
+                        @if (state == "rejected")
+                        {
+                            @Icons.Alert
+                        }
+                        @Labels.ItemStatus(state)
+                    </span>
+                </div>
+            </a>
+        }
+    </div>
+}
+@code {
+    private IReadOnlyList<ItemSummaryResponse> items = [];
+    private bool loading = true;
+    private bool error;
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        await Load();
+        StateHasChanged();
+    });
+
+    public void Dispose() => Live.Changed -= OnLive;
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load()
+    {
+        loading = true;
+        error = false;
+        try
+        {
+            items = await Api.GetMyItemsAsync();
+        }
+        catch
+        {
+            error = true;
+            items = [];
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+}

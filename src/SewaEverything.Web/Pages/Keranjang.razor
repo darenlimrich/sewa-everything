@@ -1,0 +1,220 @@
+@page "/keranjang"
+@inject SewaApi Api
+@inject AuthState Auth
+@inject CartState Cart
+@inject NavigationManager Nav
+@inject LiveState Live
+@implements IDisposable
+
+<PageTitle>Keranjang — Sewaku</PageTitle>
+
+<div class="container page-pad">
+    @if (!ready || Auth.User is null)
+    {
+        <h1 class="visually-hidden">Keranjang</h1>
+        <Skeleton Bentuk="sewaan" />
+    }
+    else if (Auth.User is not { Role: "renter" })
+    {
+        <div class="state">
+            <h3>Khusus penyewa</h3>
+            <p>Keranjang hanya tersedia untuk akun penyewa.</p>
+            <a class="btn btn--primary" href="/">Kembali ke katalog</a>
+        </div>
+    }
+    else
+    {
+        <div class="acct">
+            <AccountNav User="Auth.User" />
+
+            <section class="acct__main">
+                <div class="acct__head">
+                    <h1>Keranjang</h1>
+                </div>
+    @if (!Cart.Loaded)
+    {
+        <Skeleton Bentuk="baris" Jumlah="2" />
+    }
+    else if (Cart.Items.Count == 0)
+    {
+        <div class="state">
+            <h3>Keranjang masih kosong</h3>
+            <p>Barang yang Anda simpan dari halaman detail akan muncul di sini.</p>
+            <a class="btn btn--primary" href="/">Cari barang untuk disewa</a>
+        </div>
+    }
+    else
+    {
+        @if (error is not null)
+        {
+            <div class="form__alert" role="alert">@error</div>
+        }
+
+        <div class="cart-bulk">
+            <label class="cart-pick">
+                <input type="checkbox" checked="@SemuaTerpilih" @onchange="TogglesSemua" />
+                <span>Pilih semua (@Bisa.Count)</span>
+            </label>
+        </div>
+
+        <div class="booking-list">
+            @foreach (var line in Cart.Items)
+            {
+                <div class="card cart-row @(Terpilih.Contains(line.Id) ? "cart-row--on" : null)">
+                    <label class="cart-pick cart-row__pick">
+                        <input type="checkbox" disabled="@(!line.Available)"
+                               checked="@Terpilih.Contains(line.Id)"
+                               @onchange="() => Toggle(line.Id)" />
+                    </label>
+
+                    <a class="cart-row__thumb" href="@($"/barang/{line.ItemId}")">
+                        @if (Api.PhotoUrl(line.ItemPhotoUrl) is { } foto)
+                        {
+                            <img src="@foto" alt="" loading="lazy" />
+                        }
+                        else
+                        {
+                            <span class="placeholder">@Icons.Box</span>
+                        }
+                    </a>
+
+                    <div class="cart-row__main">
+                        <a class="cart-row__title" href="@($"/barang/{line.ItemId}")">@line.ItemTitle</a>
+                        <div class="cart-row__meta">@line.SellerName</div>
+                        <div class="cart-row__meta">@Format.Range(line.StartAt, line.EndAt)</div>
+                        @if (!line.Available)
+                        {
+                            <div class="cart-row__warn">@Icons.Alert Tanggal ini sudah tidak tersedia. Pilih tanggal lain di halaman barang.</div>
+                        }
+                    </div>
+
+                    <div class="cart-row__side">
+                        <div class="cart-row__price">
+                            @Format.Rupiah(line.Price)<span class="price-unit">@Format.PriceUnit(line.PriceUnit)</span>
+                        </div>
+                        @if (line.DepositAmount > 0)
+                        {
+                            <div class="cart-row__meta">Deposit @Format.Rupiah(line.DepositAmount)</div>
+                        }
+                        @if (line.DeliveryFee is { } ongkir)
+                        {
+                            <div class="cart-row__meta">
+                                @(ongkir > 0 ? $"Antar {Format.Rupiah(ongkir)}" : "Antar gratis")
+                            </div>
+                        }
+                        <div class="cart-row__actions">
+                            <button type="button" class="icon-btn" title="Hapus dari keranjang"
+                                    aria-label="Hapus dari keranjang"
+                                    disabled="@(busy == line.Id)" @onclick="() => Remove(line.Id)">
+                                @Icons.Trash
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="cart-foot">
+            <div class="cart-foot__sum">
+                <span>Sewa terpilih (@Terpilih.Count)</span>
+                <b>@Format.Rupiah(TotalTerpilih)</b>
+                <span class="cart-foot__note">Ongkir dan total akhir dihitung di halaman berikutnya.</span>
+            </div>
+            <button type="button" class="btn btn--primary" disabled="@(Terpilih.Count == 0)"
+                    @onclick="KeCheckout">
+                Ajukan Sewa@(Terpilih.Count > 0 ? $" ({Terpilih.Count})" : null)
+            </button>
+        </div>
+    }
+            </section>
+        </div>
+    }
+</div>
+
+@code {
+    private bool ready;
+    private string? error;
+    private Guid? busy;
+
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        if (ready)
+        {
+            await Cart.RefreshAsync(Auth.User?.Role);
+            StateHasChanged();
+        }
+    });
+
+    public void Dispose() => Live.Changed -= OnLive;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+        if (!Auth.IsAuthenticated)
+        {
+            Nav.NavigateTo($"/masuk?returnUrl={Uri.EscapeDataString("/keranjang")}");
+            return;
+        }
+
+        ready = true;
+        await Cart.RefreshAsync(Auth.User?.Role);
+    }
+
+    private HashSet<Guid> Terpilih { get; } = [];
+
+    private List<CartItemResponse> Bisa => [.. Cart.Items.Where(i => i.Available)];
+
+    private bool SemuaTerpilih => Bisa.Count > 0 && Bisa.All(i => Terpilih.Contains(i.Id));
+
+    private decimal TotalTerpilih =>
+        Cart.Items.Where(i => Terpilih.Contains(i.Id)).Sum(i => i.Price);
+
+    private void Toggle(Guid id)
+    {
+        if (!Terpilih.Add(id))
+        {
+            Terpilih.Remove(id);
+        }
+    }
+
+    private void TogglesSemua()
+    {
+        if (SemuaTerpilih)
+        {
+            Terpilih.Clear();
+            return;
+        }
+
+        foreach (var line in Bisa)
+        {
+            Terpilih.Add(line.Id);
+        }
+    }
+
+    private void KeCheckout()
+    {
+        var dipilih = Cart.Items.Where(i => Terpilih.Contains(i.Id)).Select(i => i.Id).ToList();
+
+        if (dipilih.Count == 0)
+        {
+            return;
+        }
+
+        Nav.NavigateTo($"/checkout?baris={string.Join(',', dipilih)}");
+    }
+
+    private async Task Remove(Guid id)
+    {
+        busy = id;
+        error = await Api.RemoveFromCartAsync(id);
+        busy = null;
+
+        if (error is null)
+        {
+            Terpilih.Remove(id);
+            await Cart.RefreshAsync(Auth.User?.Role);
+        }
+    }
+}

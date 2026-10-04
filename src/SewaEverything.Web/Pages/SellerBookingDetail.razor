@@ -1,0 +1,280 @@
+@page "/jual/booking/{Id:guid}"
+@layout SellerLayout
+@inject SewaApi Api
+@inject NavigationManager Nav
+@inject LiveState Live
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>Sewa masuk — Sewaku</PageTitle>
+
+<a class="back-link" href="/jual/booking">@Icons.ChevronLeft Sewa masuk</a>
+
+@if (loading)
+{
+    <h1 class="visually-hidden">Detail sewa</h1>
+    <Skeleton Bentuk="detail" />
+}
+else if (booking is null)
+{
+    <h1 class="visually-hidden">Sewa tidak ditemukan</h1>
+    <div class="state">
+        <h3>Sewa tidak ditemukan</h3>
+        <p>Sewa tidak ditemukan atau bukan untuk barang Anda.</p>
+        <a class="btn btn--outline" href="/jual/booking">Kembali ke Sewa masuk</a>
+    </div>
+}
+else
+{
+    <div class="booking-head">
+        <h1 class="page-title">@booking.ItemTitle</h1>
+        <StatusBadge Status="@booking.Status" />
+    </div>
+    <p class="booking-head__hint"><span class="ref">@booking.Reference</span></p>
+    <p class="booking-head__hint">@Labels.SellerBookingHint(booking.Status, booking.HoldExpiresAt)</p>
+
+    <div class="card account">
+        <div class="account__row"><span class="k">Penyewa</span><span>@booking.RenterName</span></div>
+        <div class="account__row"><span class="k">Waktu sewa</span><span>@Format.Range(booking.StartsAt, booking.EndsAt)</span></div>
+        <div class="account__row"><span class="k">Durasi</span><span>@booking.DurationUnits @Format.Unit(booking.PriceUnitSnapshot)</span></div>
+        <div class="account__row"><span class="k">Harga</span><span>@Format.Rupiah(booking.PriceSnapshot)@Format.PriceUnit(booking.PriceUnitSnapshot)</span></div>
+    </div>
+
+    @if (Labels.ShowsAmount(booking.Status))
+    {
+        <h2 class="section-sub">Dana untuk Anda</h2>
+        <div class="card account">
+            <div class="account__row">
+                <span class="k">Sewa (@booking.DurationUnits @Format.Unit(booking.PriceUnitSnapshot))</span>
+                <span>@Format.Rupiah(booking.TotalRent)</span>
+            </div>
+            @if (booking.PlatformFeeMode == "deduct" && booking.PlatformFeeAmount > 0)
+            {
+                <div class="account__row">
+                    <span class="k">Biaya layanan platform (@Format.Persen(booking.PlatformFeeRate))</span>
+                    <span>−@Format.Rupiah(booking.PlatformFeeAmount)</span>
+                </div>
+            }
+            <div class="account__row account__row--total">
+                <span class="k">Anda terima</span>
+                <span class="price">@Format.Rupiah(booking.SellerGross)</span>
+            </div>
+            @if (booking.DepositAmount > 0)
+            {
+                <div class="account__row">
+                    <span class="k">Deposit penyewa <span class="muted">(ditahan)</span></span>
+                    <span>@Format.Rupiah(booking.DepositAmount)</span>
+                </div>
+            }
+        </div>
+        @if (booking.DepositAmount > 0)
+        {
+            <p class="editor__hint">Deposit kembali penuh ke penyewa jika barang utuh. Potongan hanya lewat sengketa.</p>
+        }
+    }
+
+    @if (booking.HoldExpiresAt is { } hold && booking.Status is "pending" or "confirmed")
+    {
+        <p class="deadline">@Icons.Calendar
+            @(booking.Status == "pending"
+                ? $"Setujui sebelum {Format.Waktu(hold)}, atau booking otomatis batal."
+                : $"Penyewa harus melunasi sebelum {Format.Waktu(hold)}.")
+        </p>
+    }
+
+    @if (actionError is not null)
+    {
+        <div class="form__alert" role="alert">@actionError</div>
+    }
+
+    @if (Labels.AwaitingPayment(booking.Status, booking.HoldExpiresAt))
+    {
+        <p class="editor__hint">Barang hanya dapat diserahkan setelah pembayaran lunas.</p>
+    }
+
+    @if (HasActions)
+    {
+        <div class="booking-actions">
+            @switch (booking.Status)
+            {
+                case "pending":
+                    @if (confirming != Confirm.Cancel)
+                    {
+                        <div class="actions">
+                            <button class="btn btn--primary" @onclick="Approve" disabled="@acting">
+                                @(acting ? "Memproses…" : "Setujui sewa")
+                            </button>
+                            <button class="btn btn--outline" @onclick="() => confirming = Confirm.Cancel" disabled="@acting">Tolak</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="confirm">
+                            <p>Tolak permintaan sewa ini? Slot akan dibebaskan lagi.</p>
+                            <div class="confirm__actions">
+                                <button class="btn btn--outline" @onclick="() => confirming = Confirm.None" disabled="@acting">Tidak</button>
+                                <button class="btn btn--primary" @onclick="Cancel" disabled="@acting">@(acting ? "Memproses…" : "Ya, tolak")</button>
+                            </div>
+                        </div>
+                    }
+                    break;
+
+                case "confirmed":
+                    @if (confirming != Confirm.Cancel)
+                    {
+                        <div class="actions">
+                            @if (Labels.AwaitingHandover(booking.Status, booking.HoldExpiresAt))
+                            {
+                                <button class="btn btn--primary" @onclick="Handover" disabled="@acting">
+                                    @(acting ? "Memproses…" : "Serahkan barang")
+                                </button>
+                            }
+                            <button class="btn btn--outline" @onclick="() => confirming = Confirm.Cancel" disabled="@acting">Batalkan</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="confirm">
+                            <p>Batalkan sewa ini? Dana yang sudah dibayar penyewa dikembalikan penuh.</p>
+                            <div class="confirm__actions">
+                                <button class="btn btn--outline" @onclick="() => confirming = Confirm.None" disabled="@acting">Tidak</button>
+                                <button class="btn btn--primary" @onclick="Cancel" disabled="@acting">@(acting ? "Membatalkan…" : "Ya, batalkan")</button>
+                            </div>
+                        </div>
+                    }
+                    break;
+
+                case "active":
+                    @if (disputing)
+                    {
+                        <div class="confirm">
+                            <p>Jelaskan masalahnya. Potongan deposit ditentukan admin.</p>
+                            <div class="field">
+                                <textarea rows="3" maxlength="1000" @bind="disputeReason"
+                                          placeholder="mis. Lensa lecet saat dikembalikan"></textarea>
+                            </div>
+                            <div class="confirm__actions">
+                                <button class="btn btn--outline" @onclick="CancelDispute" disabled="@acting">Batal</button>
+                                <button class="btn btn--primary" @onclick="SubmitDispute" disabled="@acting">@(acting ? "Mengirim…" : "Ajukan sengketa")</button>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="actions">
+                            <button class="btn btn--primary" @onclick="Return" disabled="@acting">
+                                @(acting ? "Memproses…" : "Barang sudah kembali")
+                            </button>
+                            <button class="btn btn--outline" @onclick="() => disputing = true" disabled="@acting">Ajukan sengketa</button>
+                        </div>
+                    }
+                    break;
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private enum Confirm { None, Cancel }
+
+    private BookingResponse? booking;
+    private bool loading = true;
+    private bool acting;
+    private string? actionError;
+
+    private Confirm confirming = Confirm.None;
+    private bool disputing;
+    private string? disputeReason;
+
+    private bool HasActions => booking?.Status is "pending" or "confirmed" or "active";
+
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        if (true)
+        {
+            await Load();
+            StateHasChanged();
+        }
+    });
+
+    public void Dispose() => Live.Changed -= OnLive;
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private async Task Load()
+    {
+        loading = true;
+        confirming = Confirm.None;
+        disputing = false;
+        disputeReason = null;
+        actionError = null;
+        try { booking = await Api.GetBookingAsync(Id); }
+        catch { booking = null; }
+        finally { loading = false; }
+    }
+
+    private async Task Approve() => await RunAsync(() => Api.ApproveBookingAsync(booking!.Id), "Gagal menyetujui sewa.");
+    private async Task Handover() => await RunAsync(() => Api.HandoverBookingAsync(booking!.Id), "Gagal menyerahkan barang.");
+    private async Task Return() => await RunAsync(() => Api.ReturnBookingAsync(booking!.Id), "Gagal menyelesaikan sewa.");
+
+    private async Task Cancel()
+    {
+        await RunAsync(() => Api.CancelBookingAsync(booking!.Id), "Gagal membatalkan sewa.");
+        confirming = Confirm.None;
+    }
+
+    private async Task SubmitDispute()
+    {
+        if (string.IsNullOrWhiteSpace(disputeReason))
+        {
+            actionError = "Alasan sengketa wajib diisi.";
+            return;
+        }
+
+        var reason = disputeReason.Trim();
+        if (await RunAsync(() => Api.DisputeBookingAsync(booking!.Id, reason), "Gagal mengajukan sengketa."))
+        {
+            disputing = false;
+            disputeReason = null;
+        }
+    }
+
+    private void CancelDispute()
+    {
+        disputing = false;
+        disputeReason = null;
+        actionError = null;
+    }
+
+    private async Task<bool> RunAsync(Func<Task<(BookingResponse? Booking, string? Error)>> action, string fallback)
+    {
+        acting = true;
+        actionError = null;
+
+        var (updated, error) = await action();
+
+        acting = false;
+
+        if (updated is null)
+        {
+            actionError = error ?? fallback;
+            return false;
+        }
+
+        await SegarkanAsync();
+        return true;
+    }
+
+    private async Task SegarkanAsync()
+    {
+        await Load();
+        await Live.RefreshAsync();
+
+        try { await JS.InvokeVoidAsync("sewaScrollToPageTop"); }
+        catch (JSException) { }
+    }
+}

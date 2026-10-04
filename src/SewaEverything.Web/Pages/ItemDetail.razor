@@ -1,0 +1,525 @@
+@page "/barang/{Id:guid}"
+@inject SewaApi Api
+@inject AuthState Auth
+@inject NavigationManager Nav
+@inject CartState Cart
+
+@if (loading)
+{
+    <div class="container page-pad">
+        <Skeleton Bentuk="barang" />
+    </div>
+}
+else if (item is null)
+{
+    <PageTitle>Barang tidak ditemukan — Sewaku</PageTitle>
+    <h1 class="visually-hidden">Barang tidak ditemukan</h1>
+    <div class="container page-pad">
+        <div class="state">
+            <h3>Barang tidak ditemukan</h3>
+            <p>Barang tidak tersedia untuk umum.</p>
+            <a class="btn btn--outline" href="/">Kembali ke beranda</a>
+        </div>
+    </div>
+}
+else
+{
+    <PageTitle>@item.Title — Sewaku</PageTitle>
+    <div class="container page-pad detail">
+        <Breadcrumb Items="Crumbs" />
+
+        <section class="panel">
+            <div class="detail__grid">
+                <div class="gallery">
+                    <div class="gallery__main">
+                        @if (MainPhoto is not null)
+                        {
+                            <img @key="MainPhoto" src="@MainPhoto" alt="@item.Title" />
+                        }
+                        else
+                        {
+                            <span class="placeholder">@Icons.Box</span>
+                        }
+                    </div>
+                    @if (Photos.Count > 1)
+                    {
+                        <div class="gallery__thumbs">
+                            @for (var i = 0; i < Photos.Count; i++)
+                            {
+                                var index = i;
+                                <button type="button" aria-label="@($"Foto {index + 1}")"
+                                        class="gallery__thumb @(index == photoIndex ? "gallery__thumb--on" : null)"
+                                        @onclick="() => photoIndex = index">
+                                    <img src="@Api.PhotoUrl(Photos[index].Url)" alt="" />
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="detail__info">
+                    <h1 class="detail__title">@item.Title</h1>
+
+                    @if (reviews is { Average: { } rata })
+                    {
+                        <div class="pdp__stats">
+                            <span class="pdp__stat">
+                                <b class="pdp__score">@Format.NilaiRingkas(rata)</b>
+                                <Stars Value="rata" />
+                            </span>
+                            <span class="pdp__stat"><b>@reviews.Count</b> Penilaian</span>
+                        </div>
+                    }
+
+                    <div class="price-band">
+                        <span class="price"><span class="price__cur">Rp</span>@Format.RupiahAngka(PriceShown)</span><span class="price-unit">@Format.PriceUnit(item.PriceUnit, Units)</span>
+                        @if (Units > 1)
+                        {
+                            <span class="price-band__calc">@Format.Rupiah(item.Price)@Format.PriceUnit(item.PriceUnit) &#215; @Units @Format.Unit(item.PriceUnit)</span>
+                        }
+                    </div>
+
+                    <div class="detail__delivery">
+                        @Icons.Box
+                        <span>@(item.DeliveryFee is { } ongkir
+                            ? ongkir == 0 ? "Bisa diantar gratis atau ambil sendiri" : $"Bisa diantar {Format.Rupiah(ongkir)} atau ambil sendiri"
+                            : "Ambil sendiri di lokasi pemilik")</span>
+                    </div>
+
+                    <dl class="pdp__rows">
+                        <dt>Kategori</dt>
+                        <dd><a class="link" href="@($"/?category={Uri.EscapeDataString(item.Category)}")">@item.Category</a></dd>
+
+                        <dt>Deposit</dt>
+                        <dd>
+                            @(item.DepositAmount > 0 ? Format.Rupiah(item.DepositAmount) : "Tanpa deposit")
+                            @if (item.DepositAmount > 0)
+                            {
+                                <p class="field__hint">Dikembalikan setelah sewa selesai, sesuai hasil pemeriksaan barang.</p>
+                            }
+                        </dd>
+
+                        <dt>Pilih tanggal</dt>
+                        <dd>
+                            <div class="picker" id="pilih-tanggal">
+                                <AvailabilityCalendar Blocked="item.BlockedRanges" MinDate="MinDate" MaxDate="MaxDate"
+                                                      OnChange="OnRangeChanged" />
+                                @if (item.PriceUnit == "hour" && range is not null)
+                                {
+                                    <div class="booking__times">
+                                        <label>
+                                            Jam mulai
+                                            <select @bind="startHour">
+                                                @for (var h = 0; h < 24; h++)
+                                                {
+                                                    <option value="@h">@($"{h:00}:00")</option>
+                                                }
+                                            </select>
+                                        </label>
+                                        <label>
+                                            Jam selesai
+                                            <select @bind="endHour">
+                                                @for (var h = 1; h <= 24; h++)
+                                                {
+                                                    <option value="@h">@($"{h:00}:00")</option>
+                                                }
+                                            </select>
+                                        </label>
+                                    </div>
+                                }
+                                @if (range is not null)
+                                {
+                                    <div class="booking__summary">
+                                        @if (item.PriceUnit == "hour")
+                                        {
+                                            <div class="booking__range">@Format.Tanggal(RangeStartUtc) · @($"{startHour:00}:00")–@($"{endHour:00}:00")</div>
+                                        }
+                                        else
+                                        {
+                                            <div class="booking__range">@Format.Tanggal(RangeStartUtc) – @Format.Tanggal(RangeEndDisplayUtc) · @DayCount hari</div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </dd>
+                    </dl>
+
+                    @if (submitError is not null)
+                    {
+                        <div class="form__alert pdp__alert" role="alert">@submitError</div>
+                    }
+                    else if (masukKeranjang)
+                    {
+                        <div class="form__ok pdp__alert" role="status">
+                            Masuk keranjang. <a href="/keranjang">Lihat keranjang</a>
+                        </div>
+                    }
+
+                    <div class="pdp__cta">
+                        <button class="btn btn--outline" @onclick="AddToCart" disabled="@carting">
+                            @Icons.Cart @(carting ? "Menyimpan…" : "Masukkan Keranjang")
+                        </button>
+                        <button class="btn btn--primary" @onclick="Submit" disabled="@submitting">
+                            @(submitting ? "Memproses…" : "Ajukan Sewa")
+                        </button>
+                        <span class="pdp__note">@PickLabel</span>
+                    </div>
+                </div>
+
+                <div class="detail__seller">
+                    <a class="seller-line" href="@($"/toko/{item.SellerId}")">
+                        <span class="avatar">@Inisial(item.SellerName)</span>
+                        <div class="seller-line__main">
+                            <div class="seller-line__name">
+                                @item.SellerName
+                                @if (item.SellerIsVerified)
+                                {
+                                    <span class="verified">@Icons.Shield Terverifikasi</span>
+                                }
+                            </div>
+                            <div class="seller-line__meta">Lihat semua barang pemilik ini</div>
+                        </div>
+                        <span class="seller-line__go">@Icons.ChevronRight</span>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2 class="sec-title">Spesifikasi barang</h2>
+            <dl class="spec">
+                <dt>Kategori</dt>
+                <dd><a class="link" href="@($"/?category={Uri.EscapeDataString(item.Category)}")">@item.Category</a></dd>
+                <dt>Satuan sewa</dt>
+                <dd>Per @Format.Unit(item.PriceUnit)</dd>
+                <dt>Deposit</dt>
+                <dd>@(item.DepositAmount > 0 ? Format.Rupiah(item.DepositAmount) : "Tanpa deposit")</dd>
+                <dt>Terpasang</dt>
+                <dd>@Format.Tanggal(item.CreatedAt)</dd>
+            </dl>
+        </section>
+
+        @if (!string.IsNullOrWhiteSpace(item.Description))
+        {
+            <section class="panel">
+                <h2 class="sec-title">Deskripsi barang</h2>
+                <p class="detail__desc">@item.Description</p>
+            </section>
+        }
+
+        @if (reviews is not null)
+        {
+            <section class="panel">
+                <h2 class="sec-title">Penilaian penyewa</h2>
+                <div class="review-summary">
+                    <div class="review-summary__box">
+                        @if (reviews.Average is { } avg && TotalPenilaian > 0)
+                        {
+                            <div>
+                                <span class="review-summary__score">@Format.NilaiRingkas(avg)</span><span class="review-summary__of"> dari 5</span>
+                            </div>
+                            <Stars Value="avg" />
+                        }
+                        else
+                        {
+                            <div class="review-summary__none">Belum dinilai</div>
+                        }
+                    </div>
+                    <div class="review-chips">
+                        <button type="button" class="review-chip @(ratingFilter is null ? "review-chip--on" : null)"
+                                @onclick="() => FilterBintang(null)">Semua (@TotalPenilaian)</button>
+                        @foreach (var ember in reviews.Buckets.OrderByDescending(b => b.Rating))
+                        {
+                            var bintang = ember.Rating;
+                            <button type="button" class="review-chip @(ratingFilter == bintang ? "review-chip--on" : null)"
+                                    @onclick="() => FilterBintang(bintang)">@bintang Bintang (@ember.Count)</button>
+                        }
+                    </div>
+                </div>
+                @if (reviews.Items.Count == 0)
+                {
+                    <div class="review-empty">
+                        <span class="review-empty__icon">@Icons.Star</span>
+                        <p>Belum ada penilaian</p>
+                    </div>
+                }
+                else
+                {
+                <div class="review-list">
+                    @foreach (var ulasan in reviews.Items)
+                    {
+                        <div class="review">
+                            <span class="avatar avatar--sm">@Inisial(ulasan.ReviewerName)</span>
+                            <div class="review__body">
+                                <div class="review__name">@ulasan.ReviewerName</div>
+                                <div class="review__head">
+                                    <Stars Value="ulasan.Rating" />
+                                    <span class="review__date">@Format.Tanggal(ulasan.CreatedAt)</span>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(ulasan.Comment))
+                                {
+                                    <p class="review__comment">@ulasan.Comment</p>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+                @if (reviews.Count > reviews.Items.Count)
+                {
+                    <div class="pager">
+                        <button class="btn btn--outline btn--sm" disabled="@(reviewPage <= 1)"
+                                @onclick="() => GoToReviews(reviewPage - 1)">
+                            @Icons.ChevronLeft Sebelumnya
+                        </button>
+                        <span class="pager__info">Halaman @reviewPage dari @ReviewPageCount · @reviews.Count penilaian</span>
+                        <button class="btn btn--outline btn--sm" disabled="@(reviewPage >= ReviewPageCount)"
+                                @onclick="() => GoToReviews(reviewPage + 1)">
+                            Berikutnya @Icons.ChevronRight
+                        </button>
+                    </div>
+                    }
+                }
+            </section>
+        }
+    </div>
+    <div class="sticky-cta">
+        <div class="container">
+            <div class="sticky-cta__info">
+                <div>
+                    <span class="price">@Format.Rupiah(PriceShown)</span><span class="price-unit">@Format.PriceUnit(item.PriceUnit, Units)</span>
+                </div>
+                <div class="sticky-cta__pick">@PickLabel</div>
+            </div>
+            @if (range is null)
+            {
+                <a class="btn btn--primary" href="@PickHref">Pilih tanggal</a>
+            }
+            else
+            {
+                <button class="btn btn--outline" @onclick="AddToCart" disabled="@carting"
+                        title="Masukkan Keranjang" aria-label="Masukkan Keranjang">
+                    @Icons.Cart
+                </button>
+                <button class="btn btn--primary" @onclick="Submit" disabled="@submitting">
+                    @(submitting ? "Memproses…" : "Ajukan Sewa")
+                </button>
+            }
+        </div>
+    </div>
+}
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private const int ReviewPageSize = 5;
+
+    private ItemDetailResponse? item;
+    private ItemReviewsResponse? reviews;
+    private int reviewPage = 1;
+    private int? ratingFilter;
+    private bool loading = true;
+    private bool carting;
+    private int photoIndex;
+    private int ReviewPageCount =>
+        reviews is null ? 1 : Math.Max(1, (reviews.Count + ReviewPageSize - 1) / ReviewPageSize);
+    private int TotalPenilaian => reviews?.Buckets.Sum(b => b.Count) ?? 0;
+    private (DateOnly Start, DateOnly End)? range;
+    private int startHour = 9;
+    private int endHour = 12;
+    private bool submitting;
+    private string? submitError;
+    private static readonly TimeSpan Wib = TimeSpan.FromHours(7);
+
+    private bool IsRenter => Auth.User?.Role == "renter";
+    private IReadOnlyList<ItemPhotoResponse> Photos =>
+        item is null ? [] : item.Photos.OrderBy(p => p.SortOrder).ToList();
+    private string? MainPhoto =>
+        photoIndex < Photos.Count ? Api.PhotoUrl(Photos[photoIndex].Url) : null;
+    private string LoginHref => $"/masuk?returnUrl={Uri.EscapeDataString($"/barang/{Id}")}";
+    private string PickHref => $"/barang/{Id}#pilih-tanggal";
+
+    private static string Inisial(string name) =>
+        string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[..1];
+
+    private IReadOnlyList<Breadcrumb.Crumb> Crumbs
+    {
+        get
+        {
+            var crumbs = new List<Breadcrumb.Crumb> { new("Sewaku", "/") };
+            if (item is null) return crumbs;
+            if (!string.IsNullOrWhiteSpace(item.Category))
+            {
+                crumbs.Add(new(item.Category, $"/?category={Uri.EscapeDataString(item.Category)}"));
+            }
+            crumbs.Add(new(item.Title));
+            return crumbs;
+        }
+    }
+    private string PickLabel
+    {
+        get
+        {
+            if (range is null) return "Belum ada tanggal dipilih";
+            if (item!.PriceUnit == "hour") return $"{Format.Tanggal(RangeStartUtc)} · {startHour:00}:00–{endHour:00}:00";
+
+            return DayCount == 1
+                ? Format.Tanggal(RangeStartUtc)
+                : $"{Format.Tanggal(RangeStartUtc)} – {Format.Tanggal(RangeEndDisplayUtc)} · {DayCount} hari";
+        }
+    }
+
+    private BookingRangeResult? Built =>
+        item is not null && range is { } r
+            ? BookingRange.For(item.PriceUnit, r.Start, r.End, startHour, endHour)
+            : null;
+    private int Units => Built is { } b ? BookingRange.Units(item!.PriceUnit, b) : 0;
+    private decimal PriceShown =>
+        item is null ? 0m : Units > 0 ? item.Price * Units : item.Price;
+
+    private DateOnly MinDate => DateOnly.FromDateTime(Format.ToWib(DateTime.UtcNow));
+    private DateOnly MaxDate => item is null ? MinDate : DateOnly.FromDateTime(Format.ToWib(item.CalendarTo));
+    private int DayCount => range is { } r ? r.End.DayNumber - r.Start.DayNumber + 1 : 0;
+
+    private DateTime RangeStartUtc =>
+        range is { } r ? new DateTimeOffset(r.Start.Year, r.Start.Month, r.Start.Day, 0, 0, 0, Wib).UtcDateTime : default;
+    private DateTime RangeEndDisplayUtc =>
+        range is { } r ? new DateTimeOffset(r.End.Year, r.End.Month, r.End.Day, 0, 0, 0, Wib).UtcDateTime : default;
+    protected override async Task OnParametersSetAsync()
+    {
+        loading = true;
+        range = null;
+        submitError = null;
+        reviewPage = 1;
+        ratingFilter = null;
+        photoIndex = 0;
+        await Auth.InitializeAsync();
+        try { item = await Api.GetItemAsync(Id); }
+        catch { item = null; }
+        finally { loading = false; }
+        if (item is not null)
+        {
+            await LoadReviews();
+        }
+    }
+
+    private async Task LoadReviews()
+    {
+        try { reviews = await Api.GetItemReviewsAsync(Id, reviewPage, ReviewPageSize, ratingFilter); }
+        catch { reviews = null; }
+    }
+    private async Task FilterBintang(int? bintang)
+    {
+        ratingFilter = ratingFilter == bintang ? null : bintang;
+        reviewPage = 1;
+        await LoadReviews();
+    }
+    private async Task GoToReviews(int target)
+    {
+        reviewPage = target;
+        await LoadReviews();
+    }
+    private bool masukKeranjang;
+
+    private void OnRangeChanged((DateOnly Start, DateOnly End)? r)
+    {
+        range = r;
+        submitError = null;
+        masukKeranjang = false;
+    }
+    private async Task AddToCart()
+    {
+        submitError = null;
+
+        if (!Auth.IsAuthenticated)
+        {
+            Nav.NavigateTo(LoginHref);
+            return;
+        }
+
+        if (!IsRenter)
+        {
+            submitError = "Hanya akun penyewa yang dapat menyewa.";
+            return;
+        }
+
+        if (range is not { } picked)
+        {
+            submitError = "Pilih tanggal sewa dulu.";
+            return;
+        }
+
+        var built = BookingRange.For(item!.PriceUnit, picked.Start, picked.End, startHour, endHour);
+        if (!built.IsValid)
+        {
+            submitError = built.Error;
+            return;
+        }
+
+        carting = true;
+
+        var (line, apiError) = await Api.AddToCartAsync(new AddCartItemRequest
+        {
+            ItemId  = item!.Id,
+            StartAt = built.Start.UtcDateTime,
+            EndAt   = built.End.UtcDateTime
+        });
+
+        carting = false;
+
+        if (line is null)
+        {
+            submitError = apiError;
+            return;
+        }
+
+        await Cart.RefreshAsync(Auth.User?.Role);
+        masukKeranjang = true;
+    }
+
+    private async Task Submit()
+    {
+        submitError = null;
+
+        if (!Auth.IsAuthenticated)
+        {
+            Nav.NavigateTo(LoginHref);
+            return;
+        }
+
+        if (!IsRenter)
+        {
+            submitError = "Hanya akun penyewa yang dapat menyewa.";
+            return;
+        }
+
+        if (range is not { } picked)
+        {
+            submitError = "Pilih tanggal sewa dulu.";
+            return;
+        }
+
+        var built = BookingRange.For(item!.PriceUnit, picked.Start, picked.End, startHour, endHour);
+        if (!built.IsValid)
+        {
+            submitError = built.Error;
+            return;
+        }
+        submitting = true;
+
+        var (line, apiError) = await Api.AddToCartAsync(new AddCartItemRequest
+        {
+            ItemId  = item!.Id,
+            StartAt = built.Start.UtcDateTime,
+            EndAt   = built.End.UtcDateTime
+        });
+
+        submitting = false;
+
+        if (line is null)
+        {
+            submitError = apiError ?? "Gagal mengajukan sewa. Coba lagi.";
+            return;
+        }
+
+        await Cart.RefreshAsync(Auth.User?.Role);
+        Nav.NavigateTo("/keranjang");
+    }
+}

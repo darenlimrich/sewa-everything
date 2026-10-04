@@ -1,0 +1,118 @@
+@page "/toko/{Id:guid}"
+@inject SewaApi Api
+@inject NavigationManager Nav
+
+<PageTitle>@(Nama ?? "Toko") — Sewaku</PageTitle>
+
+<div class="container page-pad">
+    <Breadcrumb Items="Crumbs" />
+    <section class="panel store" data-page-top>
+        <span class="avatar avatar--lg">@Inisial</span>
+        <div class="store__main">
+            <div class="store__name">
+                @(Nama ?? "Pemilik barang")
+                @if (result is { Items.Count: > 0 })
+                {
+                    <span class="verified">@Icons.Shield Terverifikasi</span>
+                }
+            </div>
+            <div class="store__meta">
+                @if (result is not null)
+                {
+                    <span><b>@result.Total</b> barang tayang</span>
+                }
+            </div>
+        </div>
+    </section>
+
+    @if (loading)
+    {
+        <Skeleton Bentuk="kartu" Jumlah="5" />
+    }
+    else if (error)
+    {
+        <div class="state">
+            <h3>Gagal memuat</h3>
+            <p>Server tidak menjawab.</p>
+            <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+        </div>
+    }
+    else if (result is null || result.Items.Count == 0)
+    {
+        <div class="state">
+            <h3>Belum ada barang</h3>
+            <p>Pemilik ini belum menayangkan barang.</p>
+            <a class="btn btn--outline" href="/">Kembali ke katalog</a>
+        </div>
+    }
+    else
+    {
+        <div class="grid">
+            @foreach (var item in result.Items)
+            {
+                <ProductCard Item="item" />
+            }
+        </div>
+
+        <Pager Page="result.Page" TotalPages="result.TotalPages" Total="result.Total"
+               Noun="barang" Busy="loading" OnGoTo="GoTo"
+               Jump="lompat" OnJumped="() => lompat = false" />
+    }
+</div>
+
+@code {
+    private const int PageSize = 20;
+
+    [Parameter] public Guid Id { get; set; }
+    [SupplyParameterFromQuery(Name = "hal")] public int? Halaman { get; set; }
+
+    private PagedResponse<ItemSummaryResponse>? result;
+    private bool loading = true;
+    private bool error;
+    private bool lompat;
+
+    private string? Nama => result?.Items.FirstOrDefault()?.SellerName;
+    private string Inisial => string.IsNullOrWhiteSpace(Nama) ? "?" : Nama.Trim()[..1];
+    private IReadOnlyList<Breadcrumb.Crumb> Crumbs =>
+    [
+        new("Beranda", "/"),
+        new(Nama ?? "Toko")
+    ];
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private void GoTo(int target)
+    {
+        lompat = true;
+        Nav.NavigateTo(target > 1 ? $"/toko/{Id}?hal={target}" : $"/toko/{Id}");
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        error = false;
+
+        try
+        {
+            result = await Api.SearchItemsAsync(
+                sellerId: Id,
+                sort: ItemSortOptions.Newest,
+                page: Halaman is > 0 ? Halaman.Value : 1,
+                pageSize: PageSize);
+        }
+        catch
+        {
+            error = true;
+            result = null;
+        }
+        finally
+        {
+            loading = false;
+        }
+
+        if (Paging.OutOfRange(result) is { } terakhir)
+        {
+            GoTo(terakhir);
+        }
+    }
+}

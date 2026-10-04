@@ -1,0 +1,311 @@
+@if (Bentuk == "akun" || Bentuk == "sewaan" || Bentuk == "jual")
+{
+    <div class="acct" aria-hidden="true">
+        <aside class="acct__side">
+            <div class="acct__me">
+                <span class="skeleton sk-avatar"></span>
+                <span class="sk-stack sk-grow">
+                    <span class="skeleton sk-bar" style="width:78%"></span>
+                    <span class="skeleton sk-bar sk-bar--sm" style="width:56%"></span>
+                </span>
+            </div>
+            <span class="acct__nav sk-stack">
+                @foreach (var w in new[] { "62%", "44%", "70%", "52%", "66%", "38%" })
+                {
+                    <span class="skeleton sk-bar" style="width:@w"></span>
+                }
+            </span>
+        </aside>
+
+        @if (Bentuk == "sewaan")
+        {
+            <section class="acct__main acct__main--flush">
+                <span class="sk-tabs">
+                    @foreach (var w in new[] { "56px", "78px", "96px", "82px", "64px" })
+                    {
+                        <span class="skeleton sk-bar" style="width:@w"></span>
+                    }
+                </span>
+                <span class="sk-pad sk-block">
+                    @Sewa(Jumlah)
+                </span>
+            </section>
+        }
+        else if (Bentuk == "jual")
+        {
+            <div class="seller-content">
+                <span class="sk-row sk-head">
+                    <span class="skeleton sk-bar sk-bar--lg" style="width:150px"></span>
+                    <span class="skeleton sk-btn"></span>
+                </span>
+                @Statistik(3, true)
+            </div>
+        }
+        else
+        {
+            <section class="acct__main">
+                <span class="acct__head sk-block">
+                    <span class="skeleton sk-bar sk-bar--lg" style="width:170px"></span>
+                </span>
+                <span class="sk-stack">
+                    @for (var i = 0; i < 4; i++)
+                    {
+                        <span class="sk-row">
+                            <span class="skeleton sk-bar" style="width:104px"></span>
+                            <span class="skeleton sk-bar sk-grow" style="max-width:420px"></span>
+                        </span>
+                    }
+                    <span class="skeleton sk-btn"></span>
+                </span>
+            </section>
+        }
+    </div>
+}
+else if (Bentuk == "barang")
+{
+    <div aria-hidden="true">
+        <span class="skeleton sk-bar sk-bar--sm sk-block sk-crumb" style="width:260px"></span>
+        <div class="sk-barang">
+            <span class="skeleton sk-media sk-box"></span>
+            <span class="sk-stack">
+                <span class="skeleton sk-bar sk-bar--lg" style="width:72%"></span>
+                <span class="skeleton sk-bar sk-bar--sm" style="width:38%"></span>
+                <span class="skeleton sk-box sk-strip"></span>
+                <span class="skeleton sk-bar" style="width:56%"></span>
+                <span class="skeleton sk-box sk-cal"></span>
+                <span class="skeleton sk-btn"></span>
+            </span>
+        </div>
+    </div>
+}
+else if (Bentuk == "kartu")
+{
+    <div class="grid" aria-hidden="true">
+        @for (var i = 0; i < Jumlah; i++)
+        {
+            <span class="card sk-block">
+                <span class="skeleton sk-media"></span>
+                <span class="sk-pad sk-stack">
+                    <span class="skeleton sk-bar" style="width:@(i % 2 == 0 ? "82%" : "64%")"></span>
+                    <span class="skeleton sk-bar sk-bar--sm" style="width:44%"></span>
+                </span>
+            </span>
+        }
+    </div>
+}
+else if (Bentuk == "item")
+{
+    <div class="booking-list" aria-hidden="true">
+        @for (var i = 0; i < Jumlah; i++)
+        {
+            <span class="card item-row sk-block">
+                <span class="skeleton item-row__media"></span>
+                <span class="item-row__main sk-stack">
+                    <span class="skeleton sk-bar" style="width:@(i % 2 == 0 ? "52%" : "38%")"></span>
+                    <span class="skeleton sk-bar sk-bar--sm" style="width:26%"></span>
+                </span>
+            </span>
+        }
+    </div>
+}
+else if (Bentuk == "sewa")
+{
+    @Sewa(Jumlah)
+}
+else if (Bentuk == "baris")
+{
+    <div class="booking-list" aria-hidden="true">
+        @for (var i = 0; i < Jumlah; i++)
+        {
+            <span class="card sk-row sk-card">
+                <span class="skeleton sk-thumb sk-thumb--sm"></span>
+                <span class="sk-stack sk-grow">
+                    <span class="skeleton sk-bar" style="width:@(i % 2 == 0 ? "62%" : "48%")"></span>
+                    <span class="skeleton sk-bar sk-bar--sm" style="width:34%"></span>
+                </span>
+                <span class="skeleton sk-bar" style="width:72px"></span>
+            </span>
+        }
+    </div>
+}
+else if (Bentuk == "pop")
+{
+    <div aria-hidden="true">
+        @for (var i = 0; i < Jumlah; i++)
+        {
+            <span class="pop__row">
+                <span class="skeleton pop__thumb"></span>
+                <span class="pop__main sk-stack sk-field">
+                    <span class="skeleton sk-bar sk-bar--sm" style="width:@(i % 2 == 0 ? "72%" : "54%")"></span>
+                    <span class="skeleton sk-bar sk-bar--sm" style="width:40%"></span>
+                </span>
+                <span class="skeleton sk-bar sk-bar--sm" style="width:56px"></span>
+            </span>
+        }
+    </div>
+}
+else if (Bentuk == "tabel")
+{
+    <div class="card table-wrap sk-block" aria-hidden="true">
+        <table class="table">
+            <thead>
+                <tr>
+                    @for (var k = 0; k < Kolom; k++)
+                    {
+                        <th><span class="skeleton sk-bar sk-bar--sm" style="width:@(k == 0 ? "84px" : "62px")"></span></th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @for (var i = 0; i < Jumlah; i++)
+                {
+                    <tr>
+                        @for (var k = 0; k < Kolom; k++)
+                        {
+                            <td><span class="skeleton sk-bar" style="width:@LebarSel(i, k)"></span></td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else if (Bentuk == "statistik")
+{
+    @Statistik(Jumlah, Rapat)
+}
+else if (Bentuk == "editor")
+{
+    <div class="card editor__section sk-stack" aria-hidden="true">
+        @for (var i = 0; i < Jumlah; i++)
+        {
+            <span class="sk-stack sk-field">
+                <span class="skeleton sk-bar sk-bar--sm" style="width:@(i % 2 == 0 ? "120px" : "150px")"></span>
+                <span class="skeleton sk-box sk-input"></span>
+            </span>
+        }
+        <span class="skeleton sk-btn"></span>
+    </div>
+}
+else if (Bentuk == "bayar")
+{
+    <div class="sk-stack" aria-hidden="true">
+        <span class="skeleton sk-bar sk-bar--sm sk-crumb" style="width:120px"></span>
+        <span class="skeleton sk-bar sk-bar--lg" style="width:230px"></span>
+        <span class="card sk-pad sk-stack sk-block">
+            @foreach (var w in new[] { "52%", "64%" })
+            {
+                <span class="sk-row">
+                    <span class="skeleton sk-bar" style="width:@w"></span>
+                    <span class="skeleton sk-bar" style="width:96px"></span>
+                </span>
+            }
+            <span class="skeleton sk-bar sk-bar--lg" style="width:180px"></span>
+        </span>
+        <span class="card sk-pad sk-stack sk-block">
+            <span class="skeleton sk-bar" style="width:44%"></span>
+            @for (var i = 0; i < 3; i++)
+            {
+                <span class="skeleton sk-box sk-input"></span>
+            }
+            <span class="skeleton sk-btn"></span>
+        </span>
+    </div>
+}
+else if (Bentuk == "detail")
+{
+    <div class="sk-stack" aria-hidden="true">
+        <span class="skeleton sk-bar sk-bar--sm sk-crumb" style="width:110px"></span>
+        <span class="card sk-pad sk-row sk-block">
+            <span class="skeleton sk-thumb"></span>
+            <span class="sk-stack sk-grow">
+                <span class="skeleton sk-bar" style="width:64%"></span>
+                <span class="skeleton sk-bar sk-bar--sm" style="width:42%"></span>
+            </span>
+            <span class="skeleton sk-bar" style="width:88px"></span>
+        </span>
+        <span class="card sk-pad sk-stack sk-block">
+            @foreach (var w in new[] { "58%", "72%", "44%", "66%" })
+            {
+                <span class="sk-row">
+                    <span class="skeleton sk-bar" style="width:@w"></span>
+                    <span class="skeleton sk-bar" style="width:76px"></span>
+                </span>
+            }
+        </span>
+        <span class="sk-row">
+            <span class="skeleton sk-btn"></span>
+            <span class="skeleton sk-btn"></span>
+        </span>
+    </div>
+}
+else
+{
+    <div class="sk-stack" aria-hidden="true">
+        <span class="skeleton sk-bar sk-bar--lg" style="width:210px"></span>
+        <span class="card sk-pad sk-stack sk-block">
+            @foreach (var w in new[] { "58%", "72%", "44%" })
+            {
+                <span class="sk-row">
+                    <span class="skeleton sk-bar" style="width:@w"></span>
+                    <span class="skeleton sk-bar" style="width:76px"></span>
+                </span>
+            }
+        </span>
+        <span class="card sk-pad sk-stack sk-block">
+            <span class="skeleton sk-bar" style="width:40%"></span>
+            <span class="skeleton sk-box sk-strip"></span>
+            <span class="skeleton sk-btn"></span>
+        </span>
+    </div>
+}
+
+@code {
+    [Parameter] public string Bentuk { get; set; } = "panel";
+
+    [Parameter] public int Jumlah { get; set; } = 3;
+
+    [Parameter] public int Kolom { get; set; } = 5;
+
+    [Parameter] public bool Rapat { get; set; }
+
+    private RenderFragment Sewa(int jumlah) =>@<div class="booking-list" aria-hidden="true">
+        @for (var i = 0; i < jumlah; i++)
+        {
+            <span class="card order sk-block">
+                <span class="order__head sk-row">
+                    <span class="skeleton sk-bar sk-bar--sm" style="width:130px"></span>
+                    <span class="skeleton sk-bar sk-bar--sm sk-push" style="width:88px"></span>
+                </span>
+                <span class="order__body">
+                    <span class="skeleton order__thumb"></span>
+                    <span class="order__main sk-stack">
+                        <span class="skeleton sk-bar" style="width:@(i % 2 == 0 ? "58%" : "44%")"></span>
+                        <span class="skeleton sk-bar sk-bar--sm" style="width:36%"></span>
+                    </span>
+                    <span class="skeleton sk-bar" style="width:92px"></span>
+                </span>
+                <span class="order__foot sk-row">
+                    <span class="skeleton sk-bar" style="width:150px"></span>
+                    <span class="skeleton sk-btn sk-push"></span>
+                </span>
+            </span>
+        }
+    </div>;
+
+    private RenderFragment Statistik(int jumlah, bool rapat) =>@<span class="stat-grid @(rapat ? "stat-grid--tight" : null) sk-block" aria-hidden="true">
+        @for (var i = 0; i < jumlah; i++)
+        {
+            <span class="card stat sk-stack">
+                <span class="skeleton sk-bar sk-bar--lg" style="width:@(i == 0 ? "72%" : "58%")"></span>
+                <span class="skeleton sk-bar sk-bar--sm" style="width:80%"></span>
+            </span>
+        }
+    </span>;
+
+    private static string LebarSel(int baris, int kolom)
+    {
+        var pola = new[] { "82%", "64%", "50%", "72%", "58%", "46%" };
+        return pola[(baris * 2 + kolom) % pola.Length];
+    }
+}

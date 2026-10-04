@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Klien REST bersama web (Blazor WASM) dan mobile (MAUI). Sengaja tanpa satu pun referensi ke
+    ASP.NET Core atau MAUI: yang boleh masuk ke sini hanya hal yang berlaku sama di kedua
+    platform — pemanggilan endpoint, keadaan sesi, pemformatan, dan istilah. Apa pun yang butuh
+    browser (localStorage) atau perangkat (SecureStorage) masuk lewat ISessionStore.
+
+    Alasannya satu: kalau tiap klien punya salinan pemanggil endpoint sendiri, "web dan mobile
+    memakai REST API yang sama" cuma niat. Perubahan kontrak akan terlihat di satu tempat.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SewaEverything.Contracts\SewaEverything.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,563 @@
+@page "/jual/barang/baru"
+@page "/jual/barang/{Id:guid}"
+@layout SellerLayout
+@inject SewaApi Api
+@inject NavigationManager Nav
+
+<PageTitle>@(IsEdit ? "Ubah barang" : "Pasang barang") — Sewaku</PageTitle>
+
+<a class="back-link" href="/jual/barang">@Icons.ChevronLeft Daftar barang</a>
+
+@if (loading)
+{
+    <h1 class="visually-hidden">Ubah barang</h1>
+    <Skeleton Bentuk="editor" Jumlah="5" />
+}
+else if (notFound)
+{
+    <h1 class="visually-hidden">Barang tidak ditemukan</h1>
+    <div class="state">
+        <h3>Barang tidak ditemukan</h3>
+        <p>Barang tidak ditemukan atau bukan milik Anda.</p>
+        <a class="btn btn--outline" href="/jual/barang">Kembali ke daftar barang</a>
+    </div>
+}
+else if (loadError)
+{
+    <h1 class="visually-hidden">Gagal memuat</h1>
+    <div class="state">
+        <h3>Gagal memuat</h3>
+        <p>Server tidak menjawab.</p>
+        <button class="btn btn--outline" @onclick="LoadAsync">Coba lagi</button>
+    </div>
+}
+else
+{
+    <h1 class="page-title">@(IsEdit ? "Ubah barang" : "Pasang barang")</h1>
+
+    @if (suspendedAt is { } turun)
+    {
+        <div class="notice notice--warning">
+            <span class="notice__icon">@Icons.Alert</span>
+            <div>
+                <div class="notice__title">Listing ini diturunkan admin @Format.Tanggal(turun)</div>
+                <p>@suspensionReason</p>
+                <p>Barang tidak tampil di katalog dan tidak dapat dipesan, meskipun statusnya aktif.
+                   Perbaiki hal di atas, lalu hubungi admin untuk peninjauan ulang.</p>
+            </div>
+        </div>
+    }
+    @if (reviewStatus == "pending")
+    {
+        <div class="notice notice--warning">
+            <span class="notice__icon">@Icons.Alert</span>
+            <div>
+                <div class="notice__title">Menunggu verifikasi admin</div>
+                <p>Barang belum tampil di katalog sampai admin menyetujuinya.</p>
+            </div>
+        </div>
+    }
+    else if (reviewStatus == "rejected")
+    {
+        <div class="notice notice--warning">
+            <span class="notice__icon">@Icons.Alert</span>
+            <div>
+                <div class="notice__title">Ditolak admin@(reviewedAt is { } tolak ? $" {Format.Tanggal(tolak)}" : "")</div>
+                <p>@rejectionReason</p>
+                <p>Perbaiki hal di atas, lalu simpan — barang otomatis diajukan ulang.</p>
+            </div>
+        </div>
+    }
+    <div class="editor">
+        <section class="card editor__section">
+            <h2 class="section-sub">Detail barang</h2>
+            <EditForm Model="model" OnValidSubmit="Save" class="form">
+                <DataAnnotationsValidator />
+                @if (saveError is not null)
+                {
+                    <div class="form__alert" role="alert">@saveError</div>
+                }
+                <div class="field">
+                    <label for="title">Judul</label>
+                    <InputText id="title" @bind-Value="model.Title" placeholder="mis. Kamera Sony A7 III" />
+                    <ValidationMessage For="() => model.Title" />
+                </div>
+                <div class="field">
+                    <label for="category">Kategori</label>
+                    <InputText id="category" @bind-Value="model.Category" list="kategori-pintasan"
+                               placeholder="mis. Kamera" />
+                    <datalist id="kategori-pintasan">
+                        @foreach (var c in Catalog.Categories)
+                        {
+                            <option value="@c"></option>
+                        }
+                    </datalist>
+                    <ValidationMessage For="() => model.Category" />
+                    <span class="field__hint">
+                        Kategori dalam daftar saran menjadi pintasan di beranda. Boleh diisi kata lain.
+                    </span>
+                </div>
+                <div class="field">
+                    <label for="desc">Deskripsi <span class="field__opt">(opsional)</span></label>
+                    <InputTextArea id="desc" @bind-Value="model.Description" rows="4"
+                                   placeholder="Kondisi barang, kelengkapan, syarat sewa…" />
+                    <ValidationMessage For="() => model.Description" />
+                </div>
+
+                <div class="field-row">
+                    <div class="field">
+                        <label for="price">Harga</label>
+                        <RupiahInput id="price" @bind-Value="model.Price" For="() => model.Price" />
+                        <ValidationMessage For="() => model.Price" />
+                    </div>
+                    <div class="field">
+                        <label for="unit">Per satuan</label>
+                        <InputSelect id="unit" @bind-Value="model.PriceUnit">
+                            @foreach (var (value, label) in Labels.PriceUnitOptions)
+                            {
+                                <option value="@value">@label</option>
+                            }
+                        </InputSelect>
+                    </div>
+                </div>
+                <div class="field">
+                    <label for="deposit">Deposit <span class="field__opt">(isi 0 jika tanpa deposit)</span></label>
+                    <RupiahInput id="deposit" @bind-Value="model.DepositAmount" For="() => model.DepositAmount" />
+                    <ValidationMessage For="() => model.DepositAmount" />
+                </div>
+                <div class="field">
+                    <label class="check">
+                        <InputCheckbox @bind-Value="model.MelayaniAntar" />
+                        <span>Saya bisa mengantar barang ini</span>
+                    </label>
+                </div>
+                @if (model.MelayaniAntar)
+                {
+                    <div class="field">
+                        <label for="ongkir">Biaya antar <span class="field__opt">(isi 0 jika gratis)</span></label>
+                        <RupiahInput id="ongkir" @bind-Value="model.DeliveryFee" For="() => model.DeliveryFee" />
+                        <ValidationMessage For="() => model.DeliveryFee" />
+                        <span class="field__hint">Biaya ini utuh untuk Anda — tidak dipotong komisi.</span>
+                    </div>
+                }
+                @if (IsEdit)
+                {
+                    <div class="field">
+                        <label for="status">Status</label>
+                        <InputSelect id="status" @bind-Value="model.Status">
+                            <option value="active">Aktif — tampil di katalog</option>
+                            <option value="inactive">Nonaktif — disembunyikan</option>
+                        </InputSelect>
+                        <span class="field__hint">Barang tidak dihapus, hanya dinonaktifkan.</span>
+                    </div>
+                }
+                <div class="editor__save">
+                    <button type="submit" class="btn btn--primary" disabled="@saving">
+                        @(saving ? "Menyimpan…" : IsEdit ? "Simpan perubahan" : "Simpan & lanjut")
+                    </button>
+                    @if (saved)
+                    {
+                        <span class="editor__saved">@Icons.Shield Tersimpan</span>
+                    }
+                    @if (!IsEdit)
+                    {
+                        <span class="field__hint">Foto dapat ditambahkan setelah barang disimpan. Barang ditinjau admin sebelum tampil di katalog.</span>
+                    }
+                    else if (reviewStatus == "approved")
+                    {
+                        <span class="field__hint">Perubahan judul, kategori, deskripsi, atau foto ditinjau admin lagi sebelum tampil.</span>
+                    }
+                </div>
+            </EditForm>
+        </section>
+        @if (IsEdit)
+        {
+            <section class="card editor__section">
+                <h2 class="section-sub">Foto</h2>
+                <p class="editor__hint">Foto pertama menjadi sampul. Maksimal 10 foto, masing-masing ≤ 5 MB.</p>
+                @if (photoError is not null)
+                {
+                    <div class="form__alert" role="alert">@photoError</div>
+                }
+                <div class="photo-grid">
+                    @foreach (var photo in photos)
+                    {
+                        <div class="photo-tile">
+                            <img src="@Api.PhotoUrl(photo.Url)" alt="" />
+                            <button type="button" class="photo-tile__del" title="Hapus foto"
+                                    @onclick="() => DeletePhoto(photo.Id)" disabled="@busyPhoto">
+                                @Icons.Trash
+                            </button>
+                        </div>
+                    }
+                    @if (photos.Count < MaxPhotos)
+                    {
+                        <label class="photo-add @(uploading ? "photo-add--busy" : null)">
+                            <InputFile OnChange="OnPhotoSelected" accept="image/jpeg,image/png,image/webp" disabled="@busyPhoto" />
+                            @if (uploading)
+                            {
+                                <span>Mengunggah…</span>
+                            }
+                            else
+                            {
+                                @Icons.Plus
+                                <span>Tambah foto</span>
+                            }
+                        </label>
+                    }
+                </div>
+            </section>
+            <section class="card editor__section">
+                <h2 class="section-sub">Tanggal diblokir</h2>
+                <p class="editor__hint">Tanggal saat barang tidak dapat disewa. Tanggal yang sudah dipesan tidak dapat diblokir.</p>
+                @if (blackoutError is not null)
+                {
+                    <div class="form__alert" role="alert">@blackoutError</div>
+                }
+                <div class="blackout-form">
+                    <div class="field">
+                        <label for="bo-start">Dari tanggal</label>
+                        <input type="date" id="bo-start" @bind="blackoutStart" min="@TodayIso" />
+                    </div>
+                    <div class="field">
+                        <label for="bo-end">Sampai tanggal</label>
+                        <input type="date" id="bo-end" @bind="blackoutEnd" min="@TodayIso" />
+                    </div>
+                    <div class="field blackout-form__reason">
+                        <label for="bo-reason">Alasan <span class="field__opt">(opsional)</span></label>
+                        <input type="text" id="bo-reason" @bind="blackoutReason" maxlength="500" placeholder="mis. Diservis" />
+                    </div>
+                    <button type="button" class="btn btn--outline" @onclick="AddBlackout" disabled="@addingBlackout">
+                        @(addingBlackout ? "Memblokir…" : "Blokir tanggal")
+                    </button>
+                </div>
+                @if (blackouts.Count == 0)
+                {
+                    <p class="editor__empty">Belum ada tanggal yang diblokir.</p>
+                }
+                else
+                {
+                    <ul class="blackout-list">
+                        @foreach (var b in blackouts)
+                        {
+                            <li class="blackout-item">
+                                <div>
+                                    <span class="blackout-item__range">@BlackoutLabel(b.StartsAt, b.EndsAt)</span>
+                                    @if (!string.IsNullOrWhiteSpace(b.Reason))
+                                    {
+                                        <span class="blackout-item__reason">@b.Reason</span>
+                                    }
+                                </div>
+                                <button type="button" class="icon-btn" title="Buka blokir"
+                                        @onclick="() => DeleteBlackout(b.Id)" disabled="@busyBlackout">
+                                    @Icons.Trash
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                }
+            </section>
+        }
+    </div>
+}
+@code {
+    [Parameter] public Guid? Id { get; set; }
+    private bool IsEdit => Id is not null;
+    private Guid? loadedId;
+    private ItemForm model = new();
+    private bool loading = true;
+    private bool loadError;
+    private bool notFound;
+    private bool saving;
+    private bool saved;
+    private string? saveError;
+    private DateTime? suspendedAt;
+    private string? suspensionReason;
+    private string? reviewStatus;
+    private DateTime? reviewedAt;
+    private string? rejectionReason;
+    private const int MaxPhotos = 10;
+    private const long MaxPhotoBytes = 10 * 1024 * 1024;
+    private List<ItemPhotoResponse> photos = [];
+    private bool uploading;
+    private bool deletingPhoto;
+    private string? photoError;
+    private bool busyPhoto => uploading || deletingPhoto;
+    private static readonly TimeSpan Wib = TimeSpan.FromHours(7);
+    private List<ItemBlackoutResponse> blackouts = [];
+    private DateOnly? blackoutStart;
+    private DateOnly? blackoutEnd;
+    private string? blackoutReason;
+    private bool addingBlackout;
+    private bool deletingBlackout;
+    private string? blackoutError;
+    private bool busyBlackout => addingBlackout || deletingBlackout;
+    private string TodayIso => DateOnly.FromDateTime(Format.ToWib(DateTime.UtcNow)).ToString("yyyy-MM-dd");
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedId == Id && !loading) return;
+        loadedId = Id;
+        await LoadAsync();
+    }
+    private async Task LoadAsync()
+    {
+        loading = true;
+        loadError = false;
+        notFound = false;
+        saved = false;
+        saveError = null;
+        photoError = null;
+        blackoutError = null;
+        suspendedAt = null;
+        suspensionReason = null;
+        reviewStatus = null;
+        reviewedAt = null;
+        rejectionReason = null;
+        if (!IsEdit)
+        {
+            model = new ItemForm();
+            photos = [];
+            blackouts = [];
+            loading = false;
+            return;
+        }
+        try
+        {
+            var detail = await Api.GetItemAsync(Id!.Value);
+            if (detail is null)
+            {
+                notFound = true;
+                return;
+            }
+            model = new ItemForm
+            {
+                Title         = detail.Title,
+                Category      = detail.Category,
+                Description   = detail.Description,
+                Price         = Rapi(detail.Price),
+                PriceUnit     = detail.PriceUnit,
+                DepositAmount = Rapi(detail.DepositAmount),
+                MelayaniAntar = detail.DeliveryFee is not null,
+                DeliveryFee   = Rapi(detail.DeliveryFee ?? 0m),
+                Status        = detail.Status
+            };
+            suspendedAt      = detail.SuspendedAt;
+            suspensionReason = detail.SuspensionReason;
+            reviewStatus     = detail.ReviewStatus;
+            reviewedAt       = detail.ReviewedAt;
+            rejectionReason  = detail.RejectionReason;
+            photos = detail.Photos.OrderBy(p => p.SortOrder).ThenBy(p => p.Id).ToList();
+            blackouts = (await Api.GetBlackoutsAsync(Id!.Value)).ToList();
+        }
+        catch
+        {
+            loadError = true;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+    private static decimal Rapi(decimal nilai) =>
+        nilai == decimal.Truncate(nilai) ? decimal.Truncate(nilai) : nilai;
+
+    private async Task Save()
+    {
+        saving = true;
+        saveError = null;
+        saved = false;
+        if (!IsEdit)
+        {
+            var (item, err) = await Api.CreateItemAsync(new CreateItemRequest
+            {
+                Title         = model.Title.Trim(),
+                Category      = model.Category.Trim(),
+                Description   = string.IsNullOrWhiteSpace(model.Description) ? null : model.Description.Trim(),
+                Price         = model.Price,
+                PriceUnit     = model.PriceUnit,
+                DepositAmount = model.DepositAmount,
+                DeliveryFee   = model.MelayaniAntar ? model.DeliveryFee : null
+            });
+            saving = false;
+            if (item is null)
+            {
+                saveError = err ?? "Gagal menyimpan barang.";
+                return;
+            }
+
+            Nav.NavigateTo($"/jual/barang/{item.Id}");
+            return;
+        }
+        var (updated, updateErr) = await Api.UpdateItemAsync(Id!.Value, new UpdateItemRequest
+        {
+            Title         = model.Title.Trim(),
+            Category      = model.Category.Trim(),
+            Description   = string.IsNullOrWhiteSpace(model.Description) ? null : model.Description.Trim(),
+            Price         = model.Price,
+            PriceUnit     = model.PriceUnit,
+            DepositAmount = model.DepositAmount,
+            DeliveryFee   = model.MelayaniAntar ? model.DeliveryFee : null,
+            Status        = model.Status
+        });
+        saving = false;
+        if (updated is null)
+        {
+            saveError = updateErr ?? "Gagal menyimpan perubahan.";
+            return;
+        }
+        saved = true;
+        reviewStatus    = updated.ReviewStatus;
+        reviewedAt      = updated.ReviewedAt;
+        rejectionReason = updated.RejectionReason;
+    }
+    private async Task OnPhotoSelected(InputFileChangeEventArgs e)
+    {
+        photoError = null;
+        var file = e.File;
+        if (file is null) return;
+        uploading = true;
+        try
+        {
+            await using var stream = file.OpenReadStream(MaxPhotoBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+
+            var (photo, err) = await Api.UploadPhotoAsync(
+                Id!.Value, buffer.ToArray(), file.Name, file.ContentType);
+            if (photo is null)
+            {
+                photoError = err ?? "Gagal mengunggah foto.";
+            }
+            else
+            {
+                photos.Add(photo);
+                if (reviewStatus != "pending")
+                {
+                    reviewStatus = "pending";
+                    reviewedAt = null;
+                    rejectionReason = null;
+                }
+            }
+        }
+        catch (IOException)
+        {
+            photoError = $"Foto terlalu besar. Maksimal {MaxPhotoBytes / (1024 * 1024)} MB.";
+        }
+        catch
+        {
+            photoError = "Foto tidak dapat dibaca. Coba berkas lain.";
+        }
+        finally
+        {
+            uploading = false;
+        }
+    }
+    private async Task DeletePhoto(Guid photoId)
+    {
+        photoError = null;
+        deletingPhoto = true;
+        var err = await Api.DeletePhotoAsync(Id!.Value, photoId);
+
+        deletingPhoto = false;
+        if (err is not null)
+        {
+            photoError = err;
+            return;
+        }
+        photos.RemoveAll(p => p.Id == photoId);
+        if (reviewStatus == "rejected")
+        {
+            reviewStatus = "pending";
+            reviewedAt = null;
+            rejectionReason = null;
+        }
+    }
+    private async Task AddBlackout()
+    {
+        blackoutError = null;
+        if (blackoutStart is not { } start || blackoutEnd is not { } end)
+        {
+            blackoutError = "Isi tanggal mulai dan selesai.";
+            return;
+        }
+        if (end < start)
+        {
+            blackoutError = "Tanggal selesai tidak boleh sebelum tanggal mulai.";
+            return;
+        }
+
+        var startOffset = new DateTimeOffset(start.Year, start.Month, start.Day, 0, 0, 0, Wib);
+        var endDay = end.AddDays(1);
+        var endOffset = new DateTimeOffset(endDay.Year, endDay.Month, endDay.Day, 0, 0, 0, Wib);
+        addingBlackout = true;
+
+        var (created, err) = await Api.CreateBlackoutAsync(Id!.Value, new CreateBlackoutRequest
+        {
+            StartsAt = startOffset,
+            EndsAt   = endOffset,
+            Reason   = string.IsNullOrWhiteSpace(blackoutReason) ? null : blackoutReason.Trim()
+        });
+
+        addingBlackout = false;
+        if (created is null)
+        {
+            blackoutError = err ?? "Gagal memblokir tanggal.";
+            return;
+        }
+        blackoutStart = null;
+        blackoutEnd = null;
+        blackoutReason = null;
+        blackouts = blackouts.Append(created).OrderBy(b => b.StartsAt).ToList();
+    }
+    private async Task DeleteBlackout(Guid blackoutId)
+    {
+        blackoutError = null;
+        deletingBlackout = true;
+        var err = await Api.DeleteBlackoutAsync(Id!.Value, blackoutId);
+
+        deletingBlackout = false;
+        if (err is not null)
+        {
+            blackoutError = err;
+            return;
+        }
+        blackouts.RemoveAll(b => b.Id == blackoutId);
+    }
+    private static string BlackoutLabel(DateTime startUtc, DateTime endUtc)
+    {
+        var startLabel = Format.Tanggal(startUtc);
+        var endLabel = Format.Tanggal(endUtc.AddSeconds(-1));
+        return startLabel == endLabel ? startLabel : $"{startLabel} – {endLabel}";
+    }
+    private sealed class ItemForm
+    {
+        [Required(ErrorMessage = "Judul wajib diisi.")]
+        [StringLength(200, MinimumLength = 3, ErrorMessage = "Judul harus 3–200 karakter.")]
+        public string Title { get; set; } = string.Empty;
+        [Required(ErrorMessage = "Kategori wajib diisi.")]
+        [StringLength(80, MinimumLength = 2, ErrorMessage = "Kategori harus 2–80 karakter.")]
+        public string Category { get; set; } = string.Empty;
+        [StringLength(4000, ErrorMessage = "Deskripsi maksimal 4000 karakter.")]
+        public string? Description { get; set; }
+
+        [Range(typeof(decimal), "0.01", "999999999999.99",
+            ParseLimitsInInvariantCulture = true, ErrorMessage = "Harga harus lebih dari 0.")]
+        public decimal Price { get; set; }
+
+        [Required(ErrorMessage = "Satuan harga wajib diisi.")]
+        public string PriceUnit { get; set; } = "day";
+
+        [Range(typeof(decimal), "0", "999999999999.99",
+            ParseLimitsInInvariantCulture = true, ErrorMessage = "Deposit tidak boleh negatif.")]
+        public decimal DepositAmount { get; set; }
+
+        public bool MelayaniAntar { get; set; }
+
+        [Range(typeof(decimal), "0", "999999999999.99",
+            ParseLimitsInInvariantCulture = true, ErrorMessage = "Biaya antar tidak boleh negatif.")]
+        public decimal DeliveryFee { get; set; }
+
+        [Required(ErrorMessage = "Status wajib diisi.")]
+        public string Status { get; set; } = "active";
+    }
+}

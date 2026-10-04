@@ -1,0 +1,50 @@
+@page "/akun/sandi"
+@inject AuthState Auth
+@inject NavigationManager Nav
+
+<PageTitle>Ubah Kata Sandi — Sewaku</PageTitle>
+
+<div class="container page-pad">
+    @if (!ready || Auth.User is null)
+    {
+        <h1 class="visually-hidden">Ubah Kata Sandi</h1>
+        <Skeleton Bentuk="akun" />
+    }
+    else
+    {
+        <div class="acct">
+            <AccountNav User="Auth.User" />
+
+            <section class="acct__main">
+                <div class="acct__head">
+                    <h1>Ubah Kata Sandi</h1>
+                </div>
+
+                <PasswordPanel />
+            </section>
+        </div>
+    }
+</div>
+
+@code {
+    private bool ready;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+
+        if (!Auth.IsAuthenticated)
+        {
+            Nav.NavigateTo($"/masuk?returnUrl={Uri.EscapeDataString("/akun/sandi")}");
+            return;
+        }
+
+        if (Routes.StaffPanel(Auth.User?.Role) is { } panel)
+        {
+            Nav.NavigateTo(panel, replace: true);
+            return;
+        }
+
+        ready = true;
+    }
+}

@@ -1,0 +1,81 @@
+﻿<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sewaku — sewa barang mudah</title>
+    <base href="/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" />
+    <link rel="preload" id="webassembly" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: http: https:; connect-src 'self' http: https:" />
+    <script type="importmap"></script>
+    <script src="js/sewa.js"></script>
+</head>
+<body>
+    <div id="app">
+        <div class="boot" aria-hidden="true">
+            <div class="boot__header">
+                <div class="container boot__topbar">
+                    <span class="boot__bar" style="width:96px"></span>
+                    <span class="boot__bar" style="width:72px"></span>
+                    <span class="boot__bar boot__bar--right" style="width:88px"></span>
+                </div>
+                <div class="container boot__main">
+                    <span class="boot__logo"></span>
+                    <span class="boot__searchcol">
+                        <span class="boot__search"></span>
+                        <span class="boot__keys">
+                            <span class="boot__bar" style="width:52px"></span>
+                            <span class="boot__bar" style="width:40px"></span>
+                            <span class="boot__bar" style="width:64px"></span>
+                            <span class="boot__bar" style="width:48px"></span>
+                            <span class="boot__bar" style="width:56px"></span>
+                            <span class="boot__bar" style="width:44px"></span>
+                        </span>
+                    </span>
+                    <span class="boot__cart"></span>
+                </div>
+            </div>
+
+            <div class="container boot__body">
+                <div class="boot__panel">
+                    <div class="boot__panel-head"><span class="skeleton boot__pill" style="width:86px"></span></div>
+                    <div class="boot__cats">
+                        <span class="boot__cat"><span class="skeleton boot__dot"></span><span class="skeleton boot__pill" style="width:56px"></span><span class="skeleton boot__pill" style="width:44px"></span></span>
+                        <span class="boot__cat"><span class="skeleton boot__dot"></span><span class="skeleton boot__pill" style="width:48px"></span><span class="skeleton boot__pill" style="width:44px"></span></span>
+                        <span class="boot__cat"><span class="skeleton boot__dot"></span><span class="skeleton boot__pill" style="width:62px"></span><span class="skeleton boot__pill" style="width:44px"></span></span>
+                        <span class="boot__cat"><span class="skeleton boot__dot"></span><span class="skeleton boot__pill" style="width:54px"></span><span class="skeleton boot__pill" style="width:44px"></span></span>
+                        <span class="boot__cat"><span class="skeleton boot__dot"></span><span class="skeleton boot__pill" style="width:58px"></span><span class="skeleton boot__pill" style="width:44px"></span></span>
+                        <span class="boot__cat"><span class="skeleton boot__dot"></span><span class="skeleton boot__pill" style="width:46px"></span><span class="skeleton boot__pill" style="width:44px"></span></span>
+                        <span class="boot__cat"><span class="skeleton boot__dot"></span><span class="skeleton boot__pill" style="width:66px"></span><span class="skeleton boot__pill" style="width:44px"></span></span>
+                        <span class="boot__cat"><span class="skeleton boot__dot"></span><span class="skeleton boot__pill" style="width:52px"></span><span class="skeleton boot__pill" style="width:44px"></span></span>
+                    </div>
+                </div>
+
+                <div class="boot__panel">
+                    <div class="boot__panel-head boot__panel-head--center"><span class="skeleton boot__pill" style="width:150px"></span></div>
+                    <div class="boot__grid">
+                        <span class="boot__card"><span class="skeleton boot__media"></span><span class="skeleton boot__pill" style="width:80%"></span><span class="skeleton boot__pill" style="width:45%"></span></span>
+                        <span class="boot__card"><span class="skeleton boot__media"></span><span class="skeleton boot__pill" style="width:70%"></span><span class="skeleton boot__pill" style="width:50%"></span></span>
+                        <span class="boot__card"><span class="skeleton boot__media"></span><span class="skeleton boot__pill" style="width:85%"></span><span class="skeleton boot__pill" style="width:40%"></span></span>
+                        <span class="boot__card"><span class="skeleton boot__media"></span><span class="skeleton boot__pill" style="width:75%"></span><span class="skeleton boot__pill" style="width:48%"></span></span>
+                        <span class="boot__card"><span class="skeleton boot__media"></span><span class="skeleton boot__pill" style="width:65%"></span><span class="skeleton boot__pill" style="width:52%"></span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="blazor-error-ui">
+        Terjadi kesalahan yang tidak terduga.
+        <a href="." class="reload">Muat ulang</a>
+        <span class="dismiss">Tutup</span>
+    </div>
+    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+</body>
+</html>

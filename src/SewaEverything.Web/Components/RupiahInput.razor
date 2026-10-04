@@ -1,0 +1,94 @@
+@using System.Linq.Expressions
+@using Microsoft.AspNetCore.Components.Forms
+@inject IJSRuntime JS
+
+<div class="input-affix">
+    <span class="input-affix__pre">Rp</span>
+    <input @ref="kotak" id="@Id" type="text" inputmode="numeric" autocomplete="off"
+           class="@KelasIsian" placeholder="@Placeholder" value="@teks" @oninput="OnInput" />
+</div>
+
+@code {
+    [Parameter] public string? Id { get; set; }
+
+    [Parameter] public string Placeholder { get; set; } = "0";
+
+    [Parameter] public decimal Value { get; set; }
+
+    [Parameter] public EventCallback<decimal> ValueChanged { get; set; }
+
+    [Parameter] public Expression<Func<decimal>>? For { get; set; }
+
+    [CascadingParameter] private EditContext? Edit { get; set; }
+
+    private ElementReference kotak;
+    private string teks = string.Empty;
+    private decimal tergambar;
+    private bool disentuh;
+
+    private FieldIdentifier? Kolom => For is null ? null : FieldIdentifier.Create(For);
+
+    private string? KelasIsian
+    {
+        get
+        {
+            if (Edit is null || Kolom is not { } kolom)
+            {
+                return null;
+            }
+
+            var salah = Edit.GetValidationMessages(kolom).Any();
+
+            return (disentuh, salah) switch
+            {
+                (true, true)   => "modified invalid",
+                (true, false)  => "modified valid",
+                (false, true)  => "invalid",
+                (false, false) => null
+            };
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (Value != tergambar)
+        {
+            tergambar = Value;
+            teks = Format.RupiahAngka(Value);
+        }
+    }
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        string angka;
+
+        try
+        {
+            angka = await JS.InvokeAsync<string>("sewaRupiah", kotak);
+        }
+        catch (JSException)
+        {
+            angka = new string((e.Value?.ToString() ?? string.Empty).Where(char.IsDigit).Take(12).ToArray());
+        }
+        catch (InvalidOperationException)
+        {
+            angka = new string((e.Value?.ToString() ?? string.Empty).Where(char.IsDigit).Take(12).ToArray());
+        }
+
+        var nilai = angka.Length == 0
+            ? 0m
+            : decimal.Parse(angka, System.Globalization.CultureInfo.InvariantCulture);
+
+        teks = angka.Length == 0 ? string.Empty : Format.RupiahAngka(nilai);
+        tergambar = nilai;
+        disentuh = true;
+
+        Value = nilai;
+        await ValueChanged.InvokeAsync(nilai);
+
+        if (Edit is not null && Kolom is { } kolom)
+        {
+            Edit.NotifyFieldChanged(kolom);
+        }
+    }
+}

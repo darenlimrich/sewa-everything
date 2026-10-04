@@ -1,0 +1,133 @@
+﻿@page "/daftar"
+@inject SewaApi Api
+@inject AuthState Auth
+@inject NavigationManager Nav
+
+<PageTitle>Daftar — Sewaku</PageTitle>
+
+<div class="container">
+    <div class="auth">
+        <h1 class="auth__title">@Judul</h1>
+        <p class="auth__sub">@Keterangan</p>
+
+        <EditForm Model="model" OnValidSubmit="Submit" class="form">
+            <DataAnnotationsValidator />
+
+            @if (error is not null)
+            {
+                <div class="form__alert" role="alert">@error</div>
+            }
+
+            <div class="field">
+                <label for="name">Nama</label>
+                <InputText id="name" @bind-Value="model.Name" autocomplete="name" />
+                <ValidationMessage For="() => model.Name" />
+            </div>
+
+            <div class="field">
+                <label for="email">Email</label>
+                <InputText id="email" @bind-Value="model.Email" type="email"
+                           autocomplete="email" placeholder="nama@email.com" />
+                <ValidationMessage For="() => model.Email" />
+            </div>
+
+            <div class="field">
+                <label for="phone">Nomor telepon <span class="field__opt">(opsional)</span></label>
+                <InputText id="phone" @bind-Value="model.Phone" type="tel" autocomplete="tel" />
+                <ValidationMessage For="() => model.Phone" />
+            </div>
+
+            <div class="field">
+                <label for="password">Kata sandi</label>
+                <PasswordField Id="password" @bind-Value="model.Password" Autocomplete="new-password" />
+                <ValidationMessage For="() => model.Password" />
+                <span class="field__hint">@PasswordPolicy.Aturan</span>
+            </div>
+
+            <button type="submit" class="btn btn--primary btn--block" disabled="@busy">
+                @(busy ? "Memproses…" : "Daftar")
+            </button>
+        </EditForm>
+
+        <p class="auth__alt">Sudah punya akun? <a class="link" href="@LoginHref">Masuk</a></p>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery(Name = "peran")] public string? Peran { get; set; }
+
+    private readonly RegisterForm model = new();
+    private bool busy;
+    private string? error;
+
+    private string SafeReturn => Routes.IsLocalPath(ReturnUrl) ? ReturnUrl! : "/";
+
+    private string LoginHref =>
+        SafeReturn == "/" ? "/masuk" : $"/masuk?returnUrl={Uri.EscapeDataString(SafeReturn)}";
+
+    private bool Pemilik => string.Equals(Peran, "pemilik", StringComparison.OrdinalIgnoreCase);
+
+    private string Judul => Pemilik ? "Daftar sebagai pemilik barang" : "Daftar";
+
+    private string Keterangan => Pemilik
+        ? "Buat akun untuk menyewakan barang Anda. Barang baru tampil di katalog setelah admin memverifikasi akun Anda."
+        : "Buat akun untuk mulai menyewa barang.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        model.Role = Pemilik ? "seller" : "renter";
+
+        await Auth.InitializeAsync();
+        if (Auth.IsAuthenticated) Nav.NavigateTo(SafeReturn);
+    }
+
+    private async Task Submit()
+    {
+        busy = true;
+        error = null;
+
+        var (auth, err) = await Api.RegisterAsync(new RegisterRequest
+        {
+            Name = model.Name.Trim(),
+            Email = model.Email.Trim(),
+            Phone = string.IsNullOrWhiteSpace(model.Phone) ? null : model.Phone.Trim(),
+            Password = model.Password,
+            Role = model.Role
+        });
+
+        busy = false;
+
+        if (auth is null)
+        {
+            error = err ?? "Pendaftaran gagal. Coba lagi.";
+            return;
+        }
+
+        await Auth.SignInAsync(auth);
+        Nav.NavigateTo(SafeReturn);
+    }
+
+    private sealed class RegisterForm
+    {
+        [Required(ErrorMessage = "Nama wajib diisi.")]
+        [StringLength(120, MinimumLength = 2, ErrorMessage = "Nama harus 2–120 karakter.")]
+        public string Name { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Email wajib diisi.")]
+        [EmailAddress(ErrorMessage = "Format email tidak valid.")]
+        [StringLength(254)]
+        public string Email { get; set; } = string.Empty;
+
+        [Phone(ErrorMessage = "Format nomor telepon tidak valid.")]
+        [StringLength(30)]
+        public string? Phone { get; set; }
+
+        [Required(ErrorMessage = "Kata sandi wajib diisi.")]
+        [StrongPassword(EmailProperty = nameof(Email), NameProperty = nameof(Name))]
+        public string Password { get; set; } = string.Empty;
+
+        public string Role { get; set; } = "renter";
+    }
+}

@@ -1,0 +1,202 @@
+@page "/jual/booking"
+@layout SellerLayout
+@inject SewaApi Api
+@inject NavigationManager Nav
+@inject LiveState Live
+@implements IDisposable
+
+<PageTitle>Sewa masuk — Sewaku</PageTitle>
+
+<h1 class="page-title">Sewa masuk</h1>
+
+@if (!loading && !error && perlu.Count > 0)
+{
+    <ActionList Bookings="perlu" Kind="@NotificationKinds.Seller" Max="3" />
+}
+
+<div class="tabbar" data-page-top>
+    @foreach (var (value, label) in Tabs)
+    {
+        <a class="tabbar__tab @(IsOn(value) ? "tabbar__tab--on" : null)"
+           href="@(value is null ? "/jual/booking" : $"/jual/booking?status={value}")">
+            @label
+            @if (value == "pending" && menunggu > 0)
+            {
+                <span class="tabbar__flag">@menunggu</span>
+            }
+            else if (IsOn(value) && result is { Total: > 0 })
+            {
+                <span class="tabbar__count">(@result.Total)</span>
+            }
+        </a>
+    }
+</div>
+
+<div class="seller-list">
+    @if (loading)
+    {
+        <Skeleton Bentuk="sewa" Jumlah="4" />
+    }
+    else if (error)
+    {
+        <div class="state">
+            <h3>Gagal memuat</h3>
+            <p>Server tidak menjawab.</p>
+            <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+        </div>
+    }
+    else if (result is null || result.Items.Count == 0)
+    {
+        <div class="state">
+            <h3>Belum ada sewa</h3>
+            <p>@EmptyText</p>
+        </div>
+    }
+    else
+    {
+        <div class="booking-list">
+            @foreach (var b in result.Items)
+            {
+                <article class="card order">
+                    <header class="order__head">
+                        <span class="order__seller">@Icons.User @b.RenterName</span>
+                        <span class="order__state">
+                            @Labels.SellerBookingHint(b.Status, b.HoldExpiresAt)
+                            <b>@Labels.BookingStatus(b.Status).ToUpperInvariant()</b>
+                        </span>
+                    </header>
+
+                    <a class="order__body" href="@($"/jual/booking/{b.Id}")">
+                        <span class="order__thumb">
+                            @if (Api.PhotoUrl(b.ItemPhotoUrl) is { } foto)
+                            {
+                                <img src="@foto" alt="" loading="lazy" />
+                            }
+                            else
+                            {
+                                <span class="placeholder">@Icons.Box</span>
+                            }
+                        </span>
+                        <span class="order__main">
+                            <span class="order__title">@b.ItemTitle</span>
+                            <span class="order__meta">@Format.Range(b.StartsAt, b.EndsAt)</span>
+                            <span class="order__meta">@b.DurationUnits @Format.Unit(b.PriceUnitSnapshot)</span>
+                            <span class="order__meta"><span class="ref">@b.Reference</span></span>
+                        </span>
+                        <span class="order__price">@Format.Rupiah(b.PriceSnapshot)<span class="price-unit">@Format.PriceUnit(b.PriceUnitSnapshot)</span></span>
+                    </a>
+
+                    <footer class="order__foot">
+                        <span class="order__total">
+                            @if (Labels.ShowsAmount(b.Status))
+                            {
+                                <span>Dana untuk Anda: <b>@Format.Rupiah(b.SellerGross)</b></span>
+                                @if (b.PlatformFeeMode == "deduct" && b.PlatformFeeAmount > 0)
+                                {
+                                    <span class="order__parts">sewa @Format.Rupiah(b.TotalRent) − komisi @Format.Rupiah(b.PlatformFeeAmount)</span>
+                                }
+                            }
+                            else
+                            {
+                                <span>Sewa dibatalkan</span>
+                            }
+                        </span>
+                        <span class="order__actions">
+                            @if (b.Status == "pending")
+                            {
+                                <a class="btn btn--primary btn--sm" href="@($"/jual/booking/{b.Id}")">Tinjau permintaan</a>
+                            }
+                            else
+                            {
+                                <a class="btn btn--outline btn--sm" href="@($"/jual/booking/{b.Id}")">Lihat Detail</a>
+                            }
+                        </span>
+                    </footer>
+                </article>
+            }
+        </div>
+
+        <Pager Page="result.Page" TotalPages="result.TotalPages" Total="result.Total"
+               Noun="sewa" Busy="loading" OnGoTo="GoTo"
+               Jump="lompat" OnJumped="() => lompat = false" />
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "status")] public string? Status { get; set; }
+    [SupplyParameterFromQuery(Name = "hal")] public int? Halaman { get; set; }
+
+    private static readonly (string? Value, string Label)[] Tabs =
+    [
+        (null, "Semua"), ("pending", "Menunggu"), ("confirmed", "Dikonfirmasi"),
+        ("active", "Berlangsung"), ("completed", "Selesai"), ("disputed", "Sengketa"),
+        ("cancelled", "Dibatalkan")
+    ];
+
+    private PagedResponse<BookingResponse>? result;
+    private IReadOnlyList<BookingResponse> perlu = [];
+    private int menunggu;
+    private bool loading = true;
+    private bool error;
+    private bool lompat;
+
+    private bool IsOn(string? value) =>
+        value is null ? Status is null : string.Equals(value, Status, StringComparison.OrdinalIgnoreCase);
+
+    private string EmptyText => Status is null
+        ? "Sewa akan muncul di sini setelah penyewa memesan barang Anda."
+        : "Tidak ada sewa dengan status ini.";
+
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        await Load();
+        StateHasChanged();
+    });
+
+    public void Dispose() => Live.Changed -= OnLive;
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private void GoTo(int target)
+    {
+        lompat = true;
+
+        var query = new List<string>();
+        if (Status is not null) query.Add($"status={Uri.EscapeDataString(Status)}");
+        if (target > 1) query.Add($"hal={target}");
+
+        Nav.NavigateTo(query.Count == 0 ? "/jual/booking" : "/jual/booking?" + string.Join('&', query));
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        error = false;
+        try
+        {
+            result = await Api.GetBookingsAsync(status: Status, page: Halaman is > 0 ? Halaman.Value : 1);
+
+            var antre = await Api.GetBookingsAsync(page: 1, pageSize: 50);
+            perlu = antre?.Items ?? [];
+            menunggu = antre?.Total ?? 0;
+        }
+        catch
+        {
+            error = true;
+            result = null;
+            perlu = [];
+            menunggu = 0;
+        }
+        finally
+        {
+            loading = false;
+        }
+
+        if (Paging.OutOfRange(result) is { } terakhir)
+        {
+            GoTo(terakhir);
+        }
+    }
+}

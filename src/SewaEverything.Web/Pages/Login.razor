@@ -1,0 +1,114 @@
+﻿@page "/masuk"
+@inject SewaApi Api
+@inject AuthState Auth
+@inject NavigationManager Nav
+
+<PageTitle>Masuk — Sewaku</PageTitle>
+
+<div class="container">
+    <div class="auth">
+        <h1 class="auth__title">Masuk</h1>
+        <p class="auth__sub">Masuk untuk menyewa barang dan mengelola sewa Anda.</p>
+
+        <EditForm Model="model" OnValidSubmit="Submit" class="form">
+            <DataAnnotationsValidator />
+
+            @if (error is not null)
+            {
+                <div class="form__alert" role="alert">@error</div>
+            }
+
+            <div class="field">
+                <label for="email">Email</label>
+                <InputText id="email" @bind-Value="model.Email" type="email"
+                           autocomplete="username" placeholder="nama@email.com" />
+                <ValidationMessage For="() => model.Email" />
+            </div>
+
+            <div class="field">
+                <label for="password">Kata sandi</label>
+                <PasswordField Id="password" @bind-Value="model.Password" />
+                <ValidationMessage For="() => model.Password" />
+            </div>
+
+            @if (butuhKode)
+            {
+                <div class="field">
+                    <label for="totp">Kode autentikator</label>
+                    <InputText id="totp" @bind-Value="model.TotpCode" inputmode="numeric"
+                               autocomplete="one-time-code" placeholder="123456" />
+                    <p class="field__hint">Kode 6 angka dari aplikasi autentikator Anda, atau satu kode pemulihan.</p>
+                </div>
+            }
+
+            <button type="submit" class="btn btn--primary btn--block" disabled="@busy">
+                @(busy ? "Memproses…" : "Masuk")
+            </button>
+        </EditForm>
+
+        <p class="auth__alt"><a class="link" href="/lupa-sandi">Lupa kata sandi?</a></p>
+        <p class="auth__alt">Belum punya akun? <a class="link" href="@RegisterHref">Daftar</a></p>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+
+    private readonly LoginForm model = new();
+    private bool busy;
+    private bool butuhKode;
+    private string? error;
+
+    private bool HasReturn => Routes.IsLocalPath(ReturnUrl);
+
+    private string SafeReturn => HasReturn ? ReturnUrl! : "/";
+
+    private string Landing(string? role) => HasReturn ? SafeReturn : Routes.HomeFor(role);
+
+    private string RegisterHref =>
+        SafeReturn == "/" ? "/daftar" : $"/daftar?returnUrl={Uri.EscapeDataString(SafeReturn)}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+        if (Auth.IsAuthenticated) Nav.NavigateTo(Landing(Auth.User?.Role));
+    }
+
+    private async Task Submit()
+    {
+        busy = true;
+        error = null;
+
+        var (auth, kode, err) = await Api.LoginAsync(new LoginRequest
+        {
+            Email = model.Email.Trim(),
+            Password = model.Password,
+            TotpCode = string.IsNullOrWhiteSpace(model.TotpCode) ? null : model.TotpCode.Trim()
+        });
+
+        busy = false;
+
+        if (auth is null)
+        {
+            butuhKode = kode;
+            error = kode && string.IsNullOrWhiteSpace(model.TotpCode) ? null : err ?? "Masuk gagal. Coba lagi.";
+            model.TotpCode = string.Empty;
+            return;
+        }
+
+        await Auth.SignInAsync(auth);
+        Nav.NavigateTo(Landing(auth.User.Role));
+    }
+
+    private sealed class LoginForm
+    {
+        [Required(ErrorMessage = "Email wajib diisi.")]
+        [EmailAddress(ErrorMessage = "Format email tidak valid.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Kata sandi wajib diisi.")]
+        public string Password { get; set; } = string.Empty;
+
+        public string TotpCode { get; set; } = string.Empty;
+    }
+}

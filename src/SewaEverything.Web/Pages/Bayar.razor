@@ -1,0 +1,276 @@
+@page "/sewaanku/{Id:guid}/bayar"
+@inject SewaApi Api
+@inject AuthState Auth
+@inject NavigationManager Nav
+@inject LiveState Live
+@implements IDisposable
+
+<PageTitle>Bayar sewa — Sewaku</PageTitle>
+
+@if (!ready || loading)
+{
+    <div class="container page-pad detail-narrow">
+        <h1 class="visually-hidden">Bayar sewa</h1>
+        <Skeleton Bentuk="bayar" />
+    </div>
+}
+else if (booking is null)
+{
+    <div class="container page-pad detail-narrow">
+        <h1 class="visually-hidden">Sewa tidak ditemukan</h1>
+        <div class="state">
+            <h3>Sewa tidak ditemukan</h3>
+            <p>Sewa tidak ditemukan atau bukan milik Anda.</p>
+            <a class="btn btn--outline" href="/sewaanku">Kembali ke Sewaanku</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="container page-pad detail-narrow">
+        <a class="back-link" href="@($"/sewaanku/{Id}")">@Icons.ChevronLeft Detail sewa</a>
+
+        <h1 class="page-title">Bayar sewa</h1>
+        <p class="booking-head__hint">@booking.ItemTitle · @Format.Range(booking.StartsAt, booking.EndsAt)</p>
+        <p class="booking-head__hint"><span class="ref">@booking.Reference</span></p>
+
+        <div class="card account">
+            <div class="account__row">
+                <span class="k">Sewa</span><span>@Format.Rupiah(booking.TotalRent)</span>
+            </div>
+            @if (booking.PlatformFeeMode == "on_top" && booking.PlatformFeeAmount > 0)
+            {
+                <div class="account__row">
+                    <span class="k">Biaya layanan</span><span>@Format.Rupiah(booking.PlatformFeeAmount)</span>
+                </div>
+            }
+            @if (booking.DepositAmount > 0)
+            {
+                <div class="account__row">
+                    <span class="k">Deposit <span class="muted">(dikembalikan)</span></span>
+                    <span>@Format.Rupiah(booking.DepositAmount)</span>
+                </div>
+            }
+            @if (booking.DeliveryFee > 0)
+            {
+                <div class="account__row">
+                    <span class="k">Biaya antar</span><span>@Format.Rupiah(booking.DeliveryFee)</span>
+                </div>
+            }
+            <div class="account__row account__row--total">
+                <span class="k">Total yang ditagih</span>
+                <span class="price">@Format.Rupiah(booking.RenterTotal)</span>
+            </div>
+        </div>
+
+        @if (settled)
+        {
+            <div class="card paid" role="status">
+                <span class="paid__mark">@Icons.Check</span>
+                <div class="paid__word">LUNAS</div>
+                <p class="paid__note">Pembayaran diterima. Tunggu pemilik menyerahkan barang.</p>
+                <a class="btn btn--primary paid__done" href="/sewaanku">Selesai</a>
+            </div>
+        }
+        else if (instruction is null)
+        {
+            <h2 class="section-sub">Pilih cara bayar</h2>
+
+            <div class="payment-options" aria-label="Cara bayar">
+                @foreach (var channel in Labels.PaymentChannelOptions)
+                {
+                    <button type="button"
+                            class="chip @(selected?.Value == channel.Value ? "chip--active" : null)"
+                            aria-pressed="@((selected?.Value == channel.Value).ToString().ToLowerInvariant())"
+                            @onclick="() => Select(channel)" disabled="@paying">
+                        @Icons.Card @channel.Label
+                    </button>
+                }
+            </div>
+
+            @if (selected?.NeedsRefundAccount == true)
+            {
+                <div class="notice notice--warning">
+                    <span class="notice__icon">@Icons.Alert</span>
+                    <div>
+                        <div class="notice__title">Butuh rekening pengembalian dana</div>
+                        <p>
+                            Pengembalian dana untuk cara bayar ini lewat transfer.
+                            <a class="notice__link" href="/akun/rekening">Daftarkan rekening</a> terlebih dahulu.
+                        </p>
+                    </div>
+                </div>
+            }
+
+            @if (payError is not null)
+            {
+                <div class="form__alert" role="alert">@payError</div>
+            }
+
+            <button class="btn btn--primary" @onclick="Pay" disabled="@(paying || selected is null)">
+                @(paying ? "Membuat tagihan…" : "Buat tagihan")
+            </button>
+
+            @if (selected is not null)
+            {
+                <p class="account__note">Cara bayar: @selected.Label. Tagihan tidak akan dibuat dua kali.</p>
+            }
+            else if (payError is null)
+            {
+                <p class="account__note">Pilih cara bayar dulu.</p>
+            }
+        }
+        else
+        {
+            <div class="card pay">
+                <div class="pay__head">
+                    <span class="pay__channel">@Labels.PaymentChannel(instruction.Channel)</span>
+                    <span class="badge badge--@instruction.Status">@Labels.PaymentStatus(instruction.Status)</span>
+                </div>
+
+                <div class="pay__amount">@Format.Rupiah(instruction.Amount)</div>
+
+                @if (!string.IsNullOrEmpty(instruction.QrImageUrl))
+                {
+                    <div class="pay__qr">
+                        <img src="@instruction.QrImageUrl" alt="Kode pembayaran untuk sewa @booking.Reference" />
+                    </div>
+                    <div class="pay__scan">
+                        @(instruction.Channel == "gopay"
+                            ? "Pindai dengan aplikasi Gojek atau GoPay."
+                            : "Pindai dengan aplikasi apa pun yang mendukung QRIS.")
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(instruction.VirtualAccountNumber))
+                {
+                    <div class="pay__code">
+                        <span class="pay__code-label">Nomor virtual account</span>
+                        <span class="pay__code-value paycode">@instruction.VirtualAccountNumber</span>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(instruction.PaymentCode))
+                {
+                    <div class="pay__code">
+                        <span class="pay__code-label">Kode pembayaran</span>
+                        <span class="pay__code-value paycode">@instruction.PaymentCode</span>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(instruction.RedirectUrl) && string.IsNullOrEmpty(instruction.QrImageUrl))
+                {
+                    <a class="btn btn--primary btn--block" href="@instruction.RedirectUrl"
+                       target="_blank" rel="noopener">Buka aplikasi pembayaran</a>
+                }
+
+                @if (instruction.ExpiresAt is { } expires)
+                {
+                    <div class="pay__expiry">Bayar sebelum @Format.Waktu(expires)</div>
+                }
+            </div>
+
+            <div class="booking-actions">
+                <button class="btn btn--outline" @onclick="Load" disabled="@loading">Cek status</button>
+                <a class="btn btn--outline" href="@($"/sewaanku/{Id}")">Kembali ke detail sewa</a>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private BookingResponse? booking;
+    private PaymentInstructionResponse? instruction;
+    private PaymentChannelOption? selected;
+
+    private bool ready;
+    private bool loading = true;
+    private bool settled;
+    private bool paying;
+    private string? payError;
+
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        if (ready)
+        {
+            await Load();
+            StateHasChanged();
+        }
+    });
+
+    public void Dispose() => Live.Changed -= OnLive;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Auth.InitializeAsync();
+
+        if (!Auth.IsAuthenticated)
+        {
+            Nav.NavigateTo($"/masuk?returnUrl={Uri.EscapeDataString($"/sewaanku/{Id}/bayar")}");
+            return;
+        }
+
+        ready = true;
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+
+        try
+        {
+            booking = await Api.GetBookingAsync(Id);
+
+            var ledger = booking is null ? null : await Api.GetLedgerAsync(Id);
+            settled = ledger?.IsSettled == true;
+
+            if (booking is not null && !settled)
+            {
+                instruction = await Api.GetPaymentAsync(Id);
+            }
+        }
+        catch
+        {
+            booking = null;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void Select(PaymentChannelOption channel)
+    {
+        selected = channel;
+        payError = null;
+    }
+
+    private async Task Pay()
+    {
+        if (selected is null)
+        {
+            payError = "Pilih cara bayar dulu.";
+            return;
+        }
+
+        paying = true;
+        payError = null;
+
+        var (created, error) = await Api.PayBookingAsync(Id, selected.Value);
+
+        paying = false;
+
+        if (created is null)
+        {
+            payError = error ?? "Gagal membuat tagihan. Coba lagi.";
+            return;
+        }
+
+        instruction = created;
+    }
+}

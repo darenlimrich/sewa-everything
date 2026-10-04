@@ -1,0 +1,47 @@
+@inherits LayoutComponentBase
+@layout MainLayout
+@inject AuthState Auth
+@inject NavigationManager Nav
+@if (gate == Gate.Loading)
+{
+    <div class="container page-pad">
+        <h1 class="visually-hidden">Jualan saya</h1>
+        <Skeleton Bentuk="jual" />
+    </div>
+}
+else if (gate == Gate.NotSeller)
+{
+    <div class="container page-pad">
+        <h1 class="visually-hidden">Jualan saya</h1>
+        <div class="state">
+            <h3>Halaman khusus penjual</h3>
+            <p>Masuk dengan akun pemilik barang.</p>
+            <a class="btn btn--outline" href="/">Ke beranda</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="container page-pad acct">
+        <AccountNav User="Auth.User!" />
+        <div class="seller-content">
+            @Body
+        </div>
+    </div>
+}
+@code {
+    private enum Gate { Loading, NotSeller, Ready }
+    private Gate gate = Gate.Loading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+        if (!Auth.IsAuthenticated)
+        {
+            var here = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+            Nav.NavigateTo($"/masuk?returnUrl={Uri.EscapeDataString(here)}");
+            return;
+        }
+        gate = Auth.User?.Role == "seller" ? Gate.Ready : Gate.NotSeller;
+    }
+}

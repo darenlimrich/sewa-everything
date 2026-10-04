@@ -1,0 +1,42 @@
+@inject SewaApi Api
+
+@if (Rows.Count > 0)
+{
+    <div class="todo">
+        @foreach (var b in Rows)
+        {
+            <a class="todo__row" href="@Href(b)">
+                <span class="todo__icon">@Icons.Alert</span>
+                <span class="todo__main">
+                    <span class="todo__title">@Title(b)</span>
+                    <span class="todo__meta">@b.ItemTitle · @Format.Range(b.StartsAt, b.EndsAt)</span>
+                </span>
+                <span class="todo__go">@Labels.ActionLabel(Kind, b.Status, b.HoldExpiresAt) @Icons.ChevronRight</span>
+            </a>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<BookingResponse> Bookings { get; set; } = [];
+    [Parameter, EditorRequired] public string Kind { get; set; } = string.Empty;
+    [Parameter] public int Max { get; set; } = 3;
+
+    private bool ForSeller => Kind == NotificationKinds.Seller;
+
+    private IReadOnlyList<BookingResponse> Rows =>
+        [.. Bookings.Where(b => Labels.NeedsAction(Kind, b.Status, b.HoldExpiresAt)).Take(Max)];
+
+    private string Href(BookingResponse b) =>
+        ForSeller ? $"/jual/booking/{b.Id}" : $"/sewaanku/{b.Id}/bayar";
+
+    private string Title(BookingResponse b) => ForSeller
+        ? b.Status switch
+        {
+            "pending"   => $"{b.RenterName} ingin menyewa {b.ItemTitle}",
+            "active"    => $"Barang ada di tangan {b.RenterName}",
+            "confirmed" => $"{b.RenterName} sudah membayar — serahkan barangnya",
+            _         => b.ItemTitle
+        }
+        : "Sewa Anda disetujui — selesaikan pembayaran";
+}

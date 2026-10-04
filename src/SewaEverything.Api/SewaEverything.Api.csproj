@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+    <PackageReference Include="Microsoft.OpenApi" Version="2.11.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SewaEverything.Domain\SewaEverything.Domain.csproj" />
+    <ProjectReference Include="..\SewaEverything.Contracts\SewaEverything.Contracts.csproj" />
+    <ProjectReference Include="..\SewaEverything.Infrastructure\SewaEverything.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <!-- Foto produk demo: disalin ke output supaya ItemPhotoSeeder menemukannya di content root. -->
+  <ItemGroup>
+    <Content Include="SeedData\Photos\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

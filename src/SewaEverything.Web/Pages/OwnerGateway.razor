@@ -1,0 +1,230 @@
+@page "/owner/gateway"
+@layout AdminLayout
+@inject SewaApi Api
+@inject AuthState Auth
+
+<PageTitle>Gerbang pembayaran — Sewaku</PageTitle>
+
+<h1 class="page-title">Gerbang pembayaran</h1>
+
+@if (Auth.User?.Role != "owner")
+{
+    <div class="state">
+        <h3>Khusus superadmin</h3>
+        <p>Halaman ini hanya untuk superadmin.</p>
+    </div>
+}
+else if (loading)
+{
+    <Skeleton Bentuk="editor" Jumlah="4" />
+}
+else if (gateway is null)
+{
+    <div class="state">
+        <h3>Gagal memuat</h3>
+        <p>Server tidak menjawab.</p>
+        <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+    </div>
+}
+else
+{
+    @if (!gateway.IsConfigured)
+    {
+        <div class="notice notice--warning">
+            <span class="notice__icon">@Icons.Alert</span>
+            <div>
+                <div class="notice__title">Belum ada kunci</div>
+                <p>Penyewa belum dapat membayar sampai kunci diisi.</p>
+            </div>
+        </div>
+    }
+    else if (gateway.IsProduction)
+    {
+        <div class="notice notice--warning">
+            <span class="notice__icon">@Icons.Alert</span>
+            <div>
+                <div class="notice__title">Mode produksi aktif</div>
+                <p>Setiap pembayaran menagih uang sungguhan dari kartu dan rekening penyewa.</p>
+            </div>
+        </div>
+    }
+
+    <div class="card editor__section">
+        <div class="info-row">
+            <span class="k">Penyedia</span>
+            <span class="table__main">Midtrans</span>
+        </div>
+        <div class="info-row">
+            <span class="k">Lingkungan</span>
+            <span>
+                <span class="tag @(gateway.IsProduction ? "tag--on" : "tag--off")">
+                    @(gateway.IsProduction ? "Produksi" : "Uji coba")
+                </span>
+            </span>
+        </div>
+        <div class="info-row">
+            <span class="k">Kunci server tersimpan</span>
+            <span>@(gateway.ServerKeyHint ?? "—")</span>
+        </div>
+        <div class="info-row">
+            <span class="k">Kunci klien</span>
+            <span>@(gateway.ClientKey ?? "—")</span>
+        </div>
+        <div class="info-row">
+            <span class="k">Sumber kunci</span>
+            <span>@SumberLabel(gateway.Source)</span>
+        </div>
+    </div>
+
+    @if (gateway.Source == GatewayCredentialSources.Configuration)
+    {
+        <p class="editor__hint">Kunci masih dari konfigurasi server. Menyimpan di sini menggantikannya.</p>
+    }
+
+    <h2 class="section-sub">Ubah kredensial</h2>
+    <p class="editor__hint">Salin dari dasbor Midtrans → Pengaturan → Kunci Akses.</p>
+
+    <div class="card editor__section">
+        <EditForm Model="model" OnValidSubmit="Save" class="form">
+            <DataAnnotationsValidator />
+
+            @if (saveError is not null)
+            {
+                <div class="form__alert" role="alert">@saveError</div>
+            }
+
+            <div class="field">
+                <label for="mode">Lingkungan</label>
+                <InputSelect id="mode" @bind-Value="model.Mode">
+                    <option value="@Sandbox">Uji coba — tidak menagih uang sungguhan</option>
+                    <option value="@Produksi">Produksi — menagih uang sungguhan</option>
+                </InputSelect>
+                <span class="field__hint">Kunci diperiksa ke Midtrans sebelum disimpan. Kunci dari lingkungan lain ditolak.</span>
+            </div>
+
+            <div class="field">
+                <label for="server">Kunci server</label>
+                <InputText id="server" type="password" @bind-Value="model.ServerKey" autocomplete="off"
+                           placeholder="@(gateway.IsConfigured ? "Biarkan kosong untuk mempertahankan kunci tersimpan" : "Wajib diisi")" />
+                <ValidationMessage For="() => model.ServerKey" />
+                <span class="field__hint">Bersifat rahasia. Setelah disimpan, hanya empat karakter terakhir yang tampil.</span>
+            </div>
+
+            <div class="field">
+                <label for="client">Kunci klien</label>
+                <InputText id="client" @bind-Value="model.ClientKey" autocomplete="off" />
+                <ValidationMessage For="() => model.ClientKey" />
+            </div>
+
+            <div class="editor__save">
+                <button type="submit" class="btn btn--primary" disabled="@saving">
+                    @(saving ? "Menyimpan…" : "Simpan kredensial")
+                </button>
+                @if (saved)
+                {
+                    <span class="editor__saved">@Icons.Shield Tersimpan</span>
+                }
+            </div>
+        </EditForm>
+    </div>
+}
+
+@code {
+    private const string Sandbox  = "sandbox";
+    private const string Produksi = "produksi";
+
+    private PaymentGatewayResponse? gateway;
+    private readonly GatewayForm model = new();
+
+    private bool loading = true;
+    private bool saving;
+    private bool saved;
+    private string? saveError;
+
+    private static string SumberLabel(string source) => source switch
+    {
+        GatewayCredentialSources.Database      => "Panel ini (database)",
+        GatewayCredentialSources.Configuration => "Konfigurasi server",
+        _                                      => "Belum diatur"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+
+        if (Auth.User?.Role == "owner")
+        {
+            await Load();
+        }
+        else
+        {
+            loading = false;
+        }
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        saved = false;
+        saveError = null;
+
+        try
+        {
+            gateway = await Api.GetPaymentGatewayAsync();
+
+            if (gateway is not null)
+            {
+                model.Mode = gateway.IsProduction ? Produksi : Sandbox;
+                model.ClientKey = gateway.ClientKey ?? string.Empty;
+
+                model.ServerKey = string.Empty;
+            }
+        }
+        catch
+        {
+            gateway = null;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task Save()
+    {
+        saving = true;
+        saved = false;
+        saveError = null;
+
+        var (updated, err) = await Api.UpdatePaymentGatewayAsync(new UpdatePaymentGatewayRequest
+        {
+            ServerKey    = string.IsNullOrWhiteSpace(model.ServerKey) ? null : model.ServerKey.Trim(),
+            ClientKey    = model.ClientKey.Trim(),
+            IsProduction = model.Mode == Produksi
+        });
+
+        saving = false;
+
+        if (updated is null)
+        {
+            saveError = err ?? "Gagal menyimpan kredensial.";
+            return;
+        }
+
+        gateway = updated;
+        model.ServerKey = string.Empty;
+        saved = true;
+    }
+
+    private sealed class GatewayForm
+    {
+        public string Mode { get; set; } = Sandbox;
+
+        [StringLength(200, ErrorMessage = "Server key maksimal 200 karakter.")]
+        public string ServerKey { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Kunci klien wajib diisi.")]
+        [StringLength(200, MinimumLength = 8, ErrorMessage = "Kunci klien 8–200 karakter.")]
+        public string ClientKey { get; set; } = string.Empty;
+    }
+}

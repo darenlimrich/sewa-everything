@@ -1,0 +1,265 @@
+@page "/owner/pendapatan"
+@layout AdminLayout
+@implements IDisposable
+@inject SewaApi Api
+@inject AuthState Auth
+@inject LiveState Live
+
+<PageTitle>Pendapatan — Sewaku</PageTitle>
+
+<h1 class="page-title">Pendapatan &amp; transaksi</h1>
+
+@if (Auth.User?.Role != "owner")
+{
+    <div class="state">
+        <h3>Khusus superadmin</h3>
+        <p>Halaman ini hanya untuk superadmin.</p>
+    </div>
+}
+else if (loading)
+{
+    <Skeleton Bentuk="statistik" Jumlah="3" />
+}
+else if (revenue is null)
+{
+    <div class="state">
+        <h3>Gagal memuat</h3>
+        <p>Server tidak menjawab.</p>
+        <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+    </div>
+}
+else
+{
+    <div class="stat-grid">
+        <div class="card stat">
+            <div class="stat__value price">@Format.Rupiah(revenue.CommissionLast30Days)</div>
+            <div class="stat__label">Komisi 30 hari terakhir</div>
+        </div>
+        <div class="card stat">
+            <div class="stat__value">@Format.Rupiah(revenue.CommissionEarned)</div>
+            <div class="stat__label">Komisi total</div>
+        </div>
+        <div class="card stat">
+            <div class="stat__value">@revenue.ActiveBookings</div>
+            <div class="stat__label">Sewa berjalan</div>
+        </div>
+    </div>
+
+    <h2 class="section-sub">Kas platform</h2>
+
+    <div class="card editor__section">
+        <div class="info-row">
+            <span class="k">Uang masuk</span>
+            <span>@Format.Rupiah(revenue.MoneyIn)</span>
+        </div>
+        <div class="info-row">
+            <span class="k">Uang keluar</span>
+            <span>−@Format.Rupiah(revenue.MoneyOut)</span>
+        </div>
+        <div class="info-row account__row--total">
+            <span class="k">Kas ditahan</span>
+            <span class="price">@Format.Rupiah(revenue.CashHeld)</span>
+        </div>
+
+        <h3 class="section-sub">Rincian</h3>
+
+        <div class="info-row">
+            <span class="k">
+                Belum dicairkan
+                @if (revenue.PendingPayoutCount > 0)
+                {
+                    <span class="muted">· @revenue.PendingPayoutCount</span>
+                }
+            </span>
+            <span>@Format.Rupiah(revenue.PayoutsDue)</span>
+        </div>
+        <div class="info-row">
+            <span class="k">Komisi platform</span>
+            <span>@Format.Rupiah(revenue.CommissionEarned)</span>
+        </div>
+        <div class="info-row">
+            <span class="k">Titipan sewa belum selesai</span>
+            <span>@Format.Rupiah(revenue.InEscrow)</span>
+        </div>
+
+        <p class="editor__empty">Diperbarui @Format.Waktu(revenue.GeneratedAt).</p>
+    </div>
+
+    @if (revenue.InEscrow < 0)
+    {
+        <div class="notice notice--warning">
+            <span class="notice__icon">@Icons.Alert</span>
+            <div>
+                <div class="notice__title">Buku besar tidak seimbang</div>
+                <p>Titipan negatif — ada alokasi tanpa pemasukan pasangannya. Telusuri di buku besar.</p>
+            </div>
+        </div>
+    }
+    <h2 class="section-sub" data-page-top>Buku besar</h2>
+
+    <div class="filters">
+        <select @bind="kind" @bind:after="Reload" aria-label="Saring jenis transaksi">
+            <option value="">Semua jenis</option>
+            @foreach (var (value, label) in Labels.PaymentKindOptions)
+            {
+                <option value="@value">@label</option>
+            }
+        </select>
+        <select @bind="status" @bind:after="Reload" aria-label="Saring status transaksi">
+            <option value="">Semua status</option>
+            @foreach (var (value, label) in Labels.PaymentStatusOptions)
+            {
+                <option value="@value">@label</option>
+            }
+        </select>
+    </div>
+    @if (ledger is null)
+    {
+        <Skeleton Bentuk="tabel" Kolom="6" Jumlah="5" />
+    }
+    else if (ledger.Items.Count == 0)
+    {
+        <div class="state state--flush">
+            <h3>Belum ada transaksi</h3>
+            <p>@(HasFilter ? "Tidak ada transaksi yang cocok dengan filter ini." : "Belum ada pembayaran masuk.")</p>
+        </div>
+    }
+    else
+    {
+        <div class="card table-wrap">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Transaksi</th>
+                        <th>Barang</th>
+                        <th>Pihak</th>
+                        <th class="num">Nominal</th>
+                        <th>Status</th>
+                        <th class="nowrap">Waktu</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in ledger.Items)
+                    {
+                        <tr>
+                            <td>
+                                <div class="table__main">@Labels.PaymentKind(t.Kind)</div>
+                                <div class="table__sub">
+                                    <span class="ref">@t.Reference</span> · @Labels.PaymentDirection(t.Direction)
+                                </div>
+                            </td>
+                            <td>
+                                <div>@(string.IsNullOrEmpty(t.ItemTitle) ? "—" : t.ItemTitle)</div>
+                                <div class="table__sub"><span class="ref">@t.BookingReference</span></div>
+                            </td>
+                            <td>@(t.CounterpartyName ?? "—")</td>
+                            <td class="num">@Format.Rupiah(t.Amount)</td>
+                            <td>
+                                <span class="tag @StatusTag(t.Status)">@Labels.PaymentStatus(t.Status)</span>
+                            </td>
+                            <td class="nowrap table__sub">@Format.Waktu(t.CreatedAt)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <Pager Page="ledger.Page" TotalPages="ledger.TotalPages" Total="ledger.Total"
+               Noun="transaksi" OnGoTo="GoTo"
+               Jump="lompat" OnJumped="() => lompat = false" />
+    }
+}
+@code {
+    private const int PageSize = 20;
+    private RevenueSummaryResponse? revenue;
+    private PagedResponse<OwnerTransactionResponse>? ledger;
+    private bool loading = true;
+    private string kind = string.Empty;
+    private string status = string.Empty;
+    private int page = 1;
+    private bool lompat;
+    private bool HasFilter => kind.Length > 0 || status.Length > 0;
+
+    private static string StatusTag(string status) => status switch
+    {
+        "paid"    => "tag--ok",
+        "pending" => "tag--wait",
+        _         => "tag--off"
+    };
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        if (Auth.User?.Role != "owner" || loading)
+        {
+            return;
+        }
+
+        await Load();
+        StateHasChanged();
+    });
+
+    public void Dispose() => Live.Changed -= OnLive;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+        if (Auth.User?.Role == "owner")
+        {
+            await Load();
+        }
+        else
+        {
+            loading = false;
+        }
+    }
+    private async Task Load()
+    {
+        loading = true;
+        revenue = null;
+        try
+        {
+            revenue = await Api.GetRevenueAsync();
+        }
+        catch
+        {
+            revenue = null;
+        }
+        finally
+        {
+            loading = false;
+        }
+        if (revenue is not null)
+        {
+            await LoadLedger();
+        }
+    }
+    private async Task Reload()
+    {
+        page = 1;
+        await LoadLedger();
+    }
+    private async Task GoTo(int target)
+    {
+        lompat = true;
+        page = target;
+        await LoadLedger();
+    }
+    private async Task LoadLedger()
+    {
+        ledger = null;
+        try
+        {
+            ledger = await Api.GetTransactionsAsync(
+                kind.Length == 0 ? null : kind,
+                status.Length == 0 ? null : status,
+                page, PageSize);
+        }
+        catch
+        {
+            ledger = new PagedResponse<OwnerTransactionResponse>
+            {
+                Items = [], Page = page, PageSize = PageSize, Total = 0
+            };
+        }
+    }
+}

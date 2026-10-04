@@ -1,0 +1,82 @@
+@page "/lupa-sandi"
+@inject SewaApi Api
+
+<PageTitle>Lupa kata sandi — Sewaku</PageTitle>
+
+<div class="container">
+    <div class="auth">
+        @if (terkirim)
+        {
+            <h1 class="auth__title">Periksa kotak masuk Anda</h1>
+            <p class="auth__sub">
+                Jika @model.Email terdaftar, tautan untuk membuat kata sandi baru sudah dikirim
+                ke sana. Tautannya berlaku 60 menit.
+            </p>
+
+            <p class="auth__sub">
+                Tidak menemukannya? Periksa folder spam. Anda dapat meminta tautan baru beberapa
+                menit lagi.
+            </p>
+
+            <a class="btn btn--outline btn--block" href="@Routes.PublicLogin">Kembali ke halaman masuk</a>
+        }
+        else
+        {
+            <h1 class="auth__title">Lupa kata sandi</h1>
+            <p class="auth__sub">
+                Masukkan email akun Anda. Kami kirimkan tautan untuk membuat kata sandi baru —
+                tidak ada admin yang mengubahnya untuk Anda.
+            </p>
+
+            <EditForm Model="model" OnValidSubmit="Submit" class="form">
+                <DataAnnotationsValidator />
+
+                @if (error is not null)
+                {
+                    <div class="form__alert" role="alert">@error</div>
+                }
+
+                <div class="field">
+                    <label for="email">Email</label>
+                    <InputText id="email" @bind-Value="model.Email" type="email"
+                               autocomplete="username" placeholder="nama@email.com" />
+                    <ValidationMessage For="() => model.Email" />
+                </div>
+
+                <button type="submit" class="btn btn--primary btn--block" disabled="@busy">
+                    @(busy ? "Mengirim…" : "Kirim tautan")
+                </button>
+            </EditForm>
+
+            <p class="auth__alt">Ingat kata sandinya? <a class="link" href="@Routes.PublicLogin">Masuk</a></p>
+        }
+    </div>
+</div>
+
+@code {
+    private readonly ForgotForm model = new();
+    private bool busy;
+    private bool terkirim;
+    private string? error;
+
+    private async Task Submit()
+    {
+        busy = true;
+        error = null;
+
+        error = await Api.ForgotPasswordAsync(new ForgotPasswordRequest
+        {
+            Email = model.Email.Trim()
+        });
+
+        busy = false;
+        terkirim = error is null;
+    }
+
+    private sealed class ForgotForm
+    {
+        [Required(ErrorMessage = "Email wajib diisi.")]
+        [EmailAddress(ErrorMessage = "Format email tidak valid.")]
+        public string Email { get; set; } = string.Empty;
+    }
+}

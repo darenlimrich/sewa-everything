@@ -1,0 +1,450 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject SewaApi Api
+@inject NavigationManager Nav
+@inject AuthState Auth
+@inject CartState Cart
+@inject LiveState Live
+@inject IJSRuntime JS
+
+<div class="shell @(KeysShown ? null : "shell--flat")">
+<a class="skip-link" href="#konten-utama">Langsung ke isi halaman</a>
+<header class="app-header">
+    <div class="topbar">
+        <div class="container topbar__inner">
+            <div class="topbar__left">
+                @if (authReady && Auth.User is { } top)
+                {
+                    @if (top.Role == "seller")
+                    {
+                        <a class="topbar__link" href="/jual">Jualan saya</a>
+                        <a class="topbar__link" href="/akun">Akun saya</a>
+                    }
+                    else if (Routes.IsStaff(top.Role))
+                    {
+                        <a class="topbar__link" href="@Routes.HomeFor(top.Role)">@StaffPanelLabel(top.Role)</a>
+                    }
+                    else
+                    {
+                        <a class="topbar__link" href="/sewaanku">Sewaanku</a>
+                        <a class="topbar__link" href="/akun">Akun saya</a>
+                    }
+                }
+                else
+                {
+                    <a class="topbar__link" href="/daftar?peran=pemilik">Mulai sewakan barang</a>
+                }
+            </div>
+
+            <div class="topbar__right">
+                @if (authReady && Auth.User is { } notifUser && !Routes.IsStaff(notifUser.Role))
+                {
+                    <HoverMenu Title="Notifikasi" Class="notif" OnOpened="OpenNotifications">
+                        <Trigger>
+                            @Icons.Bell
+                            @if (Live.Unread > 0)
+                            {
+                                <span class="dot-badge">@(Live.Unread > 9 ? "9+" : Live.Unread.ToString())</span>
+                            }
+                        </Trigger>
+                        <ChildContent>
+                            <div class="pop__head">Notifikasi</div>
+                            @if (notifications is null)
+                            {
+                                <Skeleton Bentuk="pop" Jumlah="3" />
+                            }
+                            else if (notifications.Items.Count == 0)
+                            {
+                                <div class="pop__empty">Belum ada aktivitas sewa.</div>
+                            }
+                            else
+                            {
+                                @foreach (var n in notifications.Items.Take(5))
+                                {
+                                    <a class="pop__row @(Labels.NeedsAction(n.Kind, n.Status, n.HoldExpiresAt) ? "pop__row--todo" : null)"
+                                       href="@NotifHref(n)">
+                                        <span class="pop__thumb">
+                                            @if (Api.PhotoUrl(n.ItemPhotoUrl) is { } foto)
+                                            {
+                                                <img src="@foto" alt="" loading="lazy" />
+                                            }
+                                            else
+                                            {
+                                                <span class="placeholder">@Icons.Box</span>
+                                            }
+                                        </span>
+                                        <span class="pop__main">
+                                            <span class="pop__title">@n.ItemTitle</span>
+                                            @if (Labels.NeedsAction(n.Kind, n.Status, n.HoldExpiresAt))
+                                            {
+                                                <span class="pop__meta pop__act">@Labels.ActionLabel(n.Kind, n.Status, n.HoldExpiresAt)</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="pop__meta">@Labels.NotificationText(n.Kind, n.Status, n.HoldExpiresAt)</span>
+                                            }
+                                        </span>
+                                        @if (n.Amount is { } nominal)
+                                        {
+                                            <span class="pop__side">@Format.Rupiah(nominal)</span>
+                                        }
+                                    </a>
+                                }
+                                <div class="pop__foot">
+                                    <span class="pop__count">@notifications.Items.Count aktivitas terakhir</span>
+                                    <a class="btn btn--primary btn--sm" href="@NotifAllHref">Lihat semua</a>
+                                </div>
+                            }
+                        </ChildContent>
+                    </HoverMenu>
+                }
+
+                <button type="button" class="theme-toggle" @onclick="ToggleTheme"
+                        title="@ThemeLabel" aria-label="@ThemeLabel">
+                    @(Dark ? Icons.Sun : Icons.Moon)
+                </button>
+
+                @if (authReady)
+                {
+                    @if (Auth.User is { } user)
+                    {
+                        <HoverMenu Title="Akun" Class="account-menu">
+                            <Trigger>
+                                <Avatar Url="@user.AvatarUrl" Name="@user.Name" Class="avatar--sm" />
+                                <span class="account-menu__name">@FirstName(user.Name)</span>
+                                @Icons.ChevronDown
+                            </Trigger>
+                            <ChildContent>
+                                @if (Routes.IsStaff(user.Role))
+                                {
+                                    <a class="account-menu__item" href="@Routes.HomeFor(user.Role)">@StaffPanelLabel(user.Role)</a>
+                                }
+                                else if (user.Role == "seller")
+                                {
+                                    <a class="account-menu__item" href="/akun">Akun Saya</a>
+                                    <a class="account-menu__item" href="/jual">Jualan Saya</a>
+                                }
+                                else
+                                {
+                                    <a class="account-menu__item" href="/akun">Akun Saya</a>
+                                    <a class="account-menu__item" href="/sewaanku">Sewaan Saya</a>
+                                }
+                                <button type="button" class="account-menu__item" @onclick="Logout">Keluar</button>
+                            </ChildContent>
+                        </HoverMenu>
+                    }
+                    else
+                    {
+                        <a class="header__account" href="/daftar">Daftar</a>
+                        <a class="header__account" href="/masuk">@Icons.User <span>Masuk</span></a>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="container app-header__inner @(KeysShown ? "app-header__inner--tall" : null)">
+        <Logo />
+
+        <div class="header__searchcol">
+            <form class="search" role="search" @onsubmit="Search" @onsubmit:preventDefault>
+                <input type="search" @bind="query" @bind:event="oninput"
+                       placeholder="Cari barang untuk disewa…" aria-label="Cari barang" />
+                <button type="submit" class="search__btn" aria-label="Cari">@Icons.Search</button>
+            </form>
+
+            @if (KeysShown)
+            {
+                <div class="header__keys">
+                    @foreach (var c in categories)
+                    {
+                        <a class="header__key" href="@($"/?category={Uri.EscapeDataString(c.Category)}")">@c.Category</a>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (authReady && Auth.User is { Role: "renter" })
+        {
+            <HoverMenu Title="Keranjang" Class="cartmenu" Href="/keranjang" OnOpened="OpenCart">
+                <Trigger>
+                    @Icons.Cart
+                    @if (Cart.Count > 0)
+                    {
+                        <span class="dot-badge">@(Cart.Count > 9 ? "9+" : Cart.Count.ToString())</span>
+                    }
+                </Trigger>
+                <ChildContent>
+                    <div class="pop__head">Baru ditambahkan</div>
+                    @if (!Cart.Loaded)
+                    {
+                        <Skeleton Bentuk="pop" Jumlah="3" />
+                    }
+                    else if (Cart.Items.Count == 0)
+                    {
+                        <div class="pop__empty">Keranjang masih kosong.</div>
+                    }
+                    else
+                    {
+                        @foreach (var line in Cart.Items.Take(5))
+                        {
+                            <a class="pop__row" href="/keranjang">
+                                <span class="pop__thumb">
+                                    @if (Api.PhotoUrl(line.ItemPhotoUrl) is { } foto)
+                                    {
+                                        <img src="@foto" alt="" loading="lazy" />
+                                    }
+                                    else
+                                    {
+                                        <span class="placeholder">@Icons.Box</span>
+                                    }
+                                </span>
+                                <span class="pop__main">
+                                    <span class="pop__title">@line.ItemTitle</span>
+                                    <span class="pop__meta">@Format.Range(line.StartAt, line.EndAt)</span>
+                                </span>
+                                <span class="pop__side">@Format.Rupiah(line.Price)</span>
+                            </a>
+                        }
+                        <div class="pop__foot">
+                            <span class="pop__count">@Cart.Count barang di keranjang</span>
+                            <a class="btn btn--primary btn--sm" href="/keranjang">Lihat Keranjang</a>
+                        </div>
+                    }
+                </ChildContent>
+            </HoverMenu>
+        }
+    </div>
+</header>
+
+<main id="konten-utama" tabindex="-1">
+    @Body
+</main>
+
+@if (Public)
+{
+    <footer class="site-footer">
+        <div class="container">
+            <div class="footer__grid">
+                <section>
+                    <h2>Layanan pelanggan</h2>
+                    <a href="/masuk">Masuk</a>
+                    <a href="/daftar">Daftar</a>
+                    <a href="/sewaanku">Sewaanku</a>
+                    <a href="/akun">Akun</a>
+                    <a href="/lupa-sandi">Lupa kata sandi</a>
+                </section>
+                <section>
+                    <h2>Jelajahi Sewaku</h2>
+                    <a href="/">Beranda</a>
+                    <a href="/daftar?peran=pemilik">Mulai sewakan barang</a>
+                    @foreach (var c in categories.Take(5))
+                    {
+                        <a href="@($"/?category={Uri.EscapeDataString(c.Category)}")">@c.Category</a>
+                    }
+                </section>
+                <section>
+                    <h2>Cara sewa</h2>
+                    <ol class="footer__steps">
+                        <li>Cari barang</li>
+                        <li>Pilih tanggal</li>
+                        <li>Ajukan sewa</li>
+                        <li>Disetujui, lalu bayar</li>
+                    </ol>
+                </section>
+                <section>
+                    <h2>Pembayaran</h2>
+                    <div class="footer__pays">
+                        @foreach (var channel in Labels.PaymentChannelOptions)
+                        {
+                            <span class="footer__pay">@channel.Label</span>
+                        }
+                    </div>
+                </section>
+            </div>
+            <div class="footer__bar">
+                <Logo />
+                <span>© 2026 Sewaku. Marketplace sewa barang.</span>
+                <span>Indonesia</span>
+            </div>
+        </div>
+    </footer>
+}
+</div>
+
+@code {
+    private string? query;
+    private bool authReady;
+    private bool Public;
+    private IReadOnlyList<ItemCategoryResponse> categories = [];
+    private NotificationListResponse? notifications;
+
+    private bool KeysShown => Public && categories.Count > 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.Changed += OnAuthChanged;
+        Cart.Changed += OnCartChanged;
+        Live.Changed += OnLiveChanged;
+        Nav.LocationChanged += OnLocationChanged;
+        TrackRoute();
+        await Auth.InitializeAsync();
+        authReady = true;
+        await LoadCategories();
+        await Cart.RefreshAsync(Auth.User?.Role);
+
+        if (Auth.IsAuthenticated)
+        {
+            Live.Start();
+        }
+    }
+
+    private string theme = "light";
+
+    private bool Dark => theme == "dark";
+
+    private string ThemeLabel => Dark ? "Beralih ke tampilan terang" : "Beralih ke tampilan gelap";
+
+    private static string StaffPanelLabel(string? role) =>
+        role == "owner" ? "Panel superadmin" : "Panel admin";
+
+    private string NotifAllHref => Auth.User?.Role == "seller" ? "/jual/booking" : "/sewaanku";
+
+    private static string NotifHref(NotificationResponse n) => n.Kind switch
+    {
+        NotificationKinds.Listing => $"/jual/barang/{n.ItemId}",
+        NotificationKinds.Seller  => $"/jual/booking/{n.BookingId}",
+        _                         => $"/sewaanku/{n.BookingId}"
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            theme = await JS.InvokeAsync<string>("sewaTema.sekarang");
+            StateHasChanged();
+        }
+        catch (JSException)
+        {
+        }
+    }
+
+    private async Task ToggleTheme()
+    {
+        try
+        {
+            theme = await JS.InvokeAsync<string>("sewaTema.pilih", Dark ? "light" : "dark");
+        }
+        catch (JSException)
+        {
+        }
+    }
+
+    private async Task OpenNotifications()
+    {
+        notifications = await Api.GetNotificationsAsync();
+        StateHasChanged();
+
+        if (notifications.UnreadCount > 0)
+        {
+            await Api.MarkNotificationsSeenAsync();
+            await Live.RefreshAsync();
+        }
+    }
+
+    private Task OpenCart() => Cart.RefreshAsync(Auth.User?.Role);
+
+    private async Task LoadCategories()
+    {
+        if (!Public || categories.Count > 0)
+        {
+            return;
+        }
+
+        try { categories = await Api.GetItemCategoriesAsync(); }
+        catch { categories = []; }
+
+        StateHasChanged();
+    }
+
+    private void TrackRoute()
+    {
+        query = System.Web.HttpUtility.ParseQueryString(new Uri(Nav.Uri).Query)["q"] ?? string.Empty;
+        var path = "/" + Nav.ToBaseRelativePath(Nav.Uri).Split('?')[0].Split('#')[0];
+        Public = !path.StartsWith("/admin", StringComparison.Ordinal)
+              && !path.StartsWith("/owner", StringComparison.Ordinal)
+              && !path.StartsWith("/jual", StringComparison.Ordinal)
+              && !path.StartsWith("/staf", StringComparison.Ordinal);
+    }
+
+    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        TrackRoute();
+        StateHasChanged();
+        await LoadCategories();
+    }
+
+    private void OnAuthChanged()
+    {
+        notifications = null;
+        InvokeAsync(async () =>
+        {
+            if (Auth.IsAuthenticated)
+            {
+                Live.Start();
+                await Live.RefreshAsync();
+            }
+            else
+            {
+                await Live.StopAsync();
+            }
+
+            await Cart.RefreshAsync(Auth.User?.Role);
+            StateHasChanged();
+        });
+    }
+
+    private void OnCartChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnLiveChanged() => InvokeAsync(async () =>
+    {
+        if (Live.CartCount != Cart.Count)
+        {
+            await Cart.RefreshAsync(Auth.User?.Role);
+        }
+
+        if (notifications is not null)
+        {
+            notifications = await Api.GetNotificationsAsync();
+        }
+
+        StateHasChanged();
+    });
+
+    private static string FirstName(string name) =>
+        name.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var first, ..] ? first : name;
+
+    private async Task Logout()
+    {
+        var keStaf = Routes.IsStaff(Auth.User?.Role);
+
+        await Auth.SignOutAsync();
+        Nav.NavigateTo(keStaf ? Routes.StaffLogin : "/");
+    }
+
+    private void Search() =>
+        Nav.NavigateTo(string.IsNullOrWhiteSpace(query) ? "/" : $"/?q={Uri.EscapeDataString(query.Trim())}");
+
+    public void Dispose()
+    {
+        Auth.Changed -= OnAuthChanged;
+        Cart.Changed -= OnCartChanged;
+        Live.Changed -= OnLiveChanged;
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+}

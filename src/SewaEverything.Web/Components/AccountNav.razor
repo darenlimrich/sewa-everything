@@ -1,0 +1,120 @@
+@implements IDisposable
+@inject AuthState Auth
+@inject NavigationManager Nav
+@inject LiveState Live
+
+<aside class="acct__side">
+    <div class="acct__me">
+        <Avatar Url="@User.AvatarUrl" Name="@User.Name" Class="avatar--lg" />
+        <div class="acct__me-main">
+            <div class="acct__me-name">@User.Name</div>
+            <div class="acct__me-sub">@User.Email</div>
+        </div>
+    </div>
+
+    <nav class="acct__nav" aria-label="Menu akun">
+        <div class="acct__group @(akunTerbuka ? null : "acct__group--tutup")">
+            <button type="button" class="acct__group-head" @onclick="() => akunTerbuka = !akunTerbuka"
+                    aria-expanded="@(akunTerbuka ? "true" : "false")">
+                @Icons.User <span>Akun Saya</span> <span class="acct__caret">@Icons.ChevronDown</span>
+            </button>
+            <NavLink class="acct__sub" ActiveClass="acct__sub--on" href="/akun" Match="NavLinkMatch.All">Profil</NavLink>
+            @if (!Penjual)
+            {
+                <NavLink class="acct__sub" ActiveClass="acct__sub--on" href="/akun/alamat">Alamat</NavLink>
+                <NavLink class="acct__sub" ActiveClass="acct__sub--on" href="/akun/rekening">Rekening</NavLink>
+            }
+            <NavLink class="acct__sub" ActiveClass="acct__sub--on" href="/akun/sandi">Ubah Kata Sandi</NavLink>
+        </div>
+
+        @if (Penjual)
+        {
+            <div class="acct__group @(jualTerbuka ? null : "acct__group--tutup")">
+                <button type="button" class="acct__group-head" @onclick="() => jualTerbuka = !jualTerbuka"
+                        aria-expanded="@(jualTerbuka ? "true" : "false")">
+                    @Icons.Box <span>Jualan Saya</span>
+                    @if (!jualTerbuka && Live.ActionNeeded > 0)
+                    {
+                        <span class="nav-flag">@Live.ActionNeeded</span>
+                    }
+                    <span class="acct__caret">@Icons.ChevronDown</span>
+                </button>
+                <NavLink class="acct__sub" ActiveClass="acct__sub--on" href="/jual" Match="NavLinkMatch.All">Ringkasan</NavLink>
+                <NavLink class="acct__sub" ActiveClass="acct__sub--on" href="/jual/barang">Daftar barang</NavLink>
+                <NavLink class="acct__sub" ActiveClass="acct__sub--on" href="/jual/booking">
+                    <span class="acct__sub-label">Sewa masuk</span>
+                    @if (Live.ActionNeeded > 0)
+                    {
+                        <span class="nav-flag">@Live.ActionNeeded</span>
+                    }
+                </NavLink>
+                <NavLink class="acct__sub" ActiveClass="acct__sub--on" href="/jual/rekening">Rekening</NavLink>
+                <NavLink class="acct__sub" ActiveClass="acct__sub--on" href="/jual/keamanan">Keamanan</NavLink>
+            </div>
+        }
+        else
+        {
+            <NavLink class="acct__link" ActiveClass="acct__link--on" href="/sewaanku">@Icons.Clipboard Sewaan Saya</NavLink>
+            <NavLink class="acct__link" ActiveClass="acct__link--on" href="/keranjang">@Icons.Cart Keranjang</NavLink>
+        }
+
+        <button type="button" class="acct__link acct__link--action" @onclick="Logout">
+            @Icons.LogOut Keluar
+        </button>
+    </nav>
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public UserResponse User { get; set; } = default!;
+
+    private bool akunTerbuka;
+    private bool jualTerbuka;
+
+    private bool Penjual => User.Role == "seller";
+
+    protected override void OnInitialized()
+    {
+        Live.Changed += OnLive;
+        Nav.LocationChanged += OnLocation;
+        Sesuaikan();
+    }
+
+    private void OnLive() => InvokeAsync(StateHasChanged);
+
+    private void OnLocation(object? sender, LocationChangedEventArgs e) =>
+        InvokeAsync(() =>
+        {
+            Sesuaikan();
+            StateHasChanged();
+        });
+
+    private void Sesuaikan()
+    {
+        var jalur = "/" + Nav.ToBaseRelativePath(Nav.Uri).Split('?')[0].Split('#')[0];
+
+        if (jalur.StartsWith("/jual", StringComparison.Ordinal))
+        {
+            jualTerbuka = true;
+        }
+        else if (jalur.StartsWith("/akun", StringComparison.Ordinal))
+        {
+            akunTerbuka = true;
+        }
+        else if (!Penjual)
+        {
+            akunTerbuka = true;
+        }
+    }
+
+    public void Dispose()
+    {
+        Live.Changed -= OnLive;
+        Nav.LocationChanged -= OnLocation;
+    }
+
+    private async Task Logout()
+    {
+        await Auth.SignOutAsync();
+        Nav.NavigateTo("/");
+    }
+}

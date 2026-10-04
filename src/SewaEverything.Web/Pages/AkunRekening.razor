@@ -1,0 +1,80 @@
+@page "/akun/rekening"
+@inject SewaApi Api
+@inject AuthState Auth
+@inject NavigationManager Nav
+
+<PageTitle>Rekening — Sewaku</PageTitle>
+
+<div class="container page-pad">
+    @if (!ready || Auth.User is null)
+    {
+        <h1 class="visually-hidden">Rekening</h1>
+        <Skeleton Bentuk="akun" />
+    }
+    else
+    {
+        var user = Auth.User;
+
+        <div class="acct">
+            <AccountNav User="user" />
+
+            <section class="acct__main">
+                <div class="acct__head">
+                    <h1>@(user.Role == "seller" ? "Rekening pencairan" : "Rekening pengembalian dana")</h1>
+                </div>
+
+                @if (user.Role == "seller")
+                {
+                    <PayoutAccounts
+                        Hint="Tujuan pencairan dana. Wajib ada sebelum menyetujui sewa."
+                        EmptyHint="Tambahkan rekening tujuan pencairan di bawah." />
+                }
+                else
+                {
+                    <PayoutAccounts
+                        Hint="Tujuan pengembalian dana. Wajib ada sebelum membayar lewat VA, QRIS, atau minimarket."
+                        EmptyHint="Belum wajib. Diperlukan saat membayar lewat VA, QRIS, atau minimarket." />
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@code {
+    private bool ready;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+        if (!Auth.IsAuthenticated)
+        {
+            Nav.NavigateTo($"/masuk?returnUrl={Uri.EscapeDataString("/akun/rekening")}");
+            return;
+        }
+
+        if (Routes.StaffPanel(Auth.User?.Role) is { } panel)
+        {
+            Nav.NavigateTo(panel, replace: true);
+            return;
+        }
+
+        ready = true;
+
+        try
+        {
+            var fresh = await Api.GetMeAsync();
+            if (fresh is null)
+            {
+                var keStaf = Routes.IsStaff(Auth.User?.Role);
+                await Auth.SignOutAsync();
+                Nav.NavigateTo(keStaf ? Routes.StaffLogin : Routes.PublicLogin);
+                return;
+            }
+
+            await Auth.UpdateUserAsync(fresh);
+        }
+        catch
+        {
+        }
+    }
+}

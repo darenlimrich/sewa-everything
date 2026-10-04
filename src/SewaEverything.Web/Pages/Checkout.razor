@@ -1,0 +1,330 @@
+@page "/checkout"
+@inject SewaApi Api
+@inject AuthState Auth
+@inject CartState Cart
+@inject NavigationManager Nav
+
+<PageTitle>Konfirmasi sewa — Sewaku</PageTitle>
+
+<div class="container page-pad checkout">
+    @if (!ready)
+    {
+        <h1 class="visually-hidden">Konfirmasi sewa</h1>
+        <Skeleton Bentuk="bayar" />
+    }
+    else if (Auth.User is not { Role: "renter" })
+    {
+        <div class="state">
+            <h3>Khusus penyewa</h3>
+            <p>Pengajuan sewa hanya untuk akun penyewa.</p>
+            <a class="btn btn--primary" href="/">Kembali ke katalog</a>
+        </div>
+    }
+    else if (baris.Count == 0)
+    {
+        <div class="state">
+            <h3>Tidak ada barang dipilih</h3>
+            <p>Pilih barang di keranjang terlebih dahulu.</p>
+            <a class="btn btn--primary" href="/keranjang">Ke keranjang</a>
+        </div>
+    }
+    else
+    {
+        <a class="back-link" href="/keranjang">@Icons.ChevronLeft Keranjang</a>
+        <h1 class="page-title">Konfirmasi sewa</h1>
+        <ol class="checkout-steps" aria-label="Tahapan sewa">
+            <li><span>1</span><a href="/keranjang">Keranjang</a></li>
+            <li aria-current="step"><span>2</span>Konfirmasi</li>
+            <li><span>3</span>Persetujuan pemilik</li>
+            <li><span>4</span>Pembayaran</li>
+        </ol>
+
+        @if (error is not null)
+        {
+            <div class="form__alert" role="alert">@error</div>
+        }
+
+        <div class="checkout__grid">
+        <div class="checkout__items">
+        <h2 class="sec-title">Alamat pengiriman</h2>
+        <div class="card ship">
+            @if (alamatSemua.Count == 0)
+            {
+                <p class="ship__empty">Belum ada alamat tersimpan.</p>
+                <a class="btn btn--outline btn--sm" href="/akun/alamat">Tambah alamat</a>
+            }
+            else
+            {
+                <div class="field">
+                    <label for="alamat">Kirim ke</label>
+                    <select id="alamat" value="@alamatId" @onchange="GantiAlamat" disabled="@(menghitung || mengirim)">
+                        @foreach (var a in alamatSemua)
+                        {
+                            <option value="@a.Id">@a.Label — @a.RecipientName (@a.Phone)</option>
+                        }
+                    </select>
+                </div>
+                @if (AlamatTerpilih is { } dipakai)
+                {
+                    <div class="ship__destination">
+                        <div class="ship__recipient">
+                            <strong>@dipakai.RecipientName</strong>
+                            <span class="ship__phone">@dipakai.Phone</span>
+                        </div>
+                        <p class="ship__addr">@dipakai.FullAddress</p>
+                        @if (!string.IsNullOrWhiteSpace(dipakai.Notes))
+                        {
+                            <p class="ship__note">@dipakai.Notes</p>
+                        }
+                    </div>
+                }
+                <a class="ship__manage btn btn--outline btn--sm" href="/akun/alamat">Kelola alamat</a>
+            }
+        </div>
+
+        <h2 class="sec-title">Barang yang disewa</h2>
+        <div class="booking-list">
+            @foreach (var line in Baris)
+            {
+                <div class="card order">
+                    <div class="order__head">
+                        <span class="order__seller">@Icons.User @line.SellerName</span>
+                    </div>
+                    <div class="order__body">
+                        <span class="order__thumb">
+                            @if (Api.PhotoUrl(line.ItemPhotoUrl) is { } foto)
+                            {
+                                <img src="@foto" alt="" loading="lazy" />
+                            }
+                            else
+                            {
+                                <span class="placeholder">@Icons.Box</span>
+                            }
+                        </span>
+                        <span class="order__main">
+                            <span class="order__title">@line.ItemTitle</span>
+                            <span class="order__meta">@Format.Range(line.StartAt, line.EndAt)</span>
+                            <span class="order__meta">
+                                @Format.Rupiah(line.Price)@Format.PriceUnit(line.PriceUnit) × @line.DurationUnits
+                            </span>
+                        </span>
+                        <span class="order__price">@Format.Rupiah(line.TotalRent)</span>
+                    </div>
+
+                    <div class="ship-opt">
+                        <span class="ship-opt__label">Opsi pengiriman</span>
+                        <div class="ship-opt__picks">
+                            <label class="ship-pick @(Metode(line.CartItemId) == DeliveryMethodValues.Pickup ? "ship-pick--on" : null)">
+                                <input type="radio" name="@($"kirim-{line.CartItemId}")"
+                                       disabled="@(menghitung || mengirim)"
+                                       checked="@(Metode(line.CartItemId) == DeliveryMethodValues.Pickup)"
+                                       @onchange="() => SetMetode(line.CartItemId, DeliveryMethodValues.Pickup)" />
+                                <span>
+                                    <b>Ambil sendiri</b>
+                                    <small>Gratis — ambil di lokasi pemilik</small>
+                                </span>
+                            </label>
+
+                            @if (line.DeliveryAvailable)
+                            {
+                                <label class="ship-pick @(Metode(line.CartItemId) == DeliveryMethodValues.Delivery ? "ship-pick--on" : null)">
+                                    <input type="radio" name="@($"kirim-{line.CartItemId}")"
+                                           disabled="@(menghitung || mengirim || alamatSemua.Count == 0)"
+                                           checked="@(Metode(line.CartItemId) == DeliveryMethodValues.Delivery)"
+                                           @onchange="() => SetMetode(line.CartItemId, DeliveryMethodValues.Delivery)" />
+                                    <span>
+                                        <b>Diantar pemilik</b>
+                                        <small>@(line.OfferedDeliveryFee is { } tarif ? tarif > 0 ? Format.Rupiah(tarif) : "Gratis" : "Tarif dihitung setelah dipilih")</small>
+                                        @if (alamatSemua.Count == 0)
+                                        {
+                                            <small>Tambahkan alamat untuk memilih pengantaran.</small>
+                                        }
+                                    </span>
+                                </label>
+                            }
+                            else
+                            {
+                                <span class="ship-pick ship-pick--off">
+                                    <span>
+                                        <b>Diantar pemilik</b>
+                                        <small>Pemilik ini tidak melayani pengantaran</small>
+                                    </span>
+                                </span>
+                            }
+                        </div>
+                    </div>
+
+                    @if (!line.Available)
+                    {
+                        <div class="order__foot order__foot--warn">@Icons.Alert @line.Problem</div>
+                    }
+                </div>
+            }
+        </div>
+        </div>
+        <aside class="checkout__summary" aria-label="Ringkasan biaya" aria-busy="@menghitung.ToString().ToLowerInvariant()">
+        <h2 class="sec-title">Ringkasan sewa</h2>
+        <div class="card account">
+            <div class="account__row">
+                <span class="k">Sewa</span><span>@Format.Rupiah(Quote?.TotalRent ?? 0m)</span>
+            </div>
+            <div class="account__row">
+                <span class="k">Deposit (dikembalikan)</span><span>@Format.Rupiah(Quote?.TotalDeposit ?? 0m)</span>
+            </div>
+            <div class="account__row">
+                <span class="k">Biaya antar</span><span>@Format.Rupiah(Quote?.TotalDelivery ?? 0m)</span>
+            </div>
+            @if (Quote is { TotalServiceFee: > 0 })
+            {
+                <div class="account__row">
+                    <span class="k">Biaya layanan</span><span>@Format.Rupiah(Quote.TotalServiceFee)</span>
+                </div>
+            }
+            <div class="account__row account__row--total">
+                <span class="k">Total yang ditagih</span>
+                <span class="price">@Format.Rupiah(Quote?.GrandTotal ?? 0m)</span>
+            </div>
+        </div>
+
+        <div class="checkout__cta">
+            <button class="btn btn--primary btn--block" disabled="@(mengirim || menghitung || !quoteValid || Quote?.CanSubmit != true)"
+                    @onclick="Kirim">
+                @(mengirim ? "Mengajukan…" : menghitung ? "Menghitung…" : "Ajukan Sewa")
+            </button>
+            <span class="pdp__note">
+                @(quoteValid && Quote?.CanSubmit == true
+                    ? "Bayar setelah pemilik menyetujui. Deposit dikembalikan setelah sewa selesai, sesuai hasil pemeriksaan barang."
+                    : "Perbaiki barang yang bermasalah dulu.")
+            </span>
+            @if (!quoteValid)
+            {
+                <button class="btn btn--outline btn--block" disabled="@menghitung" @onclick="Muat">Hitung ulang</button>
+            }
+        </div>
+        </aside>
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "baris")] public string? BarisQuery { get; set; }
+
+    private bool ready;
+    private bool mengirim;
+    private bool menghitung;
+    private bool quoteValid;
+    private string? error;
+
+    private List<Guid> baris = [];
+    private IReadOnlyList<AddressResponse> alamatSemua = [];
+    private Guid? alamatId;
+
+    private readonly Dictionary<Guid, string> metode = [];
+
+    private CheckoutQuoteResponse? Quote { get; set; }
+
+    private IReadOnlyList<CheckoutQuoteLineResponse> Baris => Quote?.Lines ?? [];
+
+    private AddressResponse? AlamatTerpilih => alamatSemua.FirstOrDefault(a => a.Id == alamatId);
+
+    private string Metode(Guid cartItemId) =>
+        metode.TryGetValue(cartItemId, out var m) ? m : DeliveryMethodValues.Pickup;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+
+        if (!Auth.IsAuthenticated)
+        {
+            Nav.NavigateTo($"/masuk?returnUrl={Uri.EscapeDataString(Nav.ToBaseRelativePath(Nav.Uri).Insert(0, "/"))}");
+            return;
+        }
+
+        baris = (BarisQuery ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => Guid.TryParse(x, out var g) ? g : Guid.Empty)
+            .Where(g => g != Guid.Empty)
+            .Distinct()
+            .ToList();
+
+        if (Auth.User is { Role: "renter" } && baris.Count > 0)
+        {
+            alamatSemua = await Api.GetAddressesAsync();
+            alamatId    = alamatSemua.FirstOrDefault(a => a.IsDefault)?.Id ?? alamatSemua.FirstOrDefault()?.Id;
+
+            await Muat();
+        }
+
+        ready = true;
+    }
+
+    private async Task Muat()
+    {
+        menghitung = true;
+        quoteValid = false;
+        try
+        {
+            var (quote, apiError) = await Api.QuoteCheckoutAsync(Bangun());
+            if (quote is null)
+            {
+                error = apiError ?? "Ringkasan belum dapat dihitung. Coba lagi.";
+                return;
+            }
+            error = null;
+            Quote = quote;
+            quoteValid = true;
+        }
+        finally
+        {
+            menghitung = false;
+        }
+    }
+
+    private CheckoutRequest Bangun() => new()
+    {
+        Lines = [.. baris.Select(id => new CheckoutLineRequest
+        {
+            CartItemId     = id,
+            DeliveryMethod = Metode(id)
+        })],
+        AddressId = alamatId
+    };
+
+    private async Task SetMetode(Guid cartItemId, string pilihan)
+    {
+        if (menghitung || mengirim) return;
+        metode[cartItemId] = pilihan;
+        await Muat();
+    }
+
+    private async Task GantiAlamat(ChangeEventArgs e)
+    {
+        if (menghitung || mengirim) return;
+        alamatId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        await Muat();
+    }
+
+    private async Task Kirim()
+    {
+        if (mengirim || menghitung || !quoteValid || Quote?.CanSubmit != true) return;
+        error = null;
+        mengirim = true;
+
+        var (hasil, apiError) = await Api.SubmitCheckoutAsync(Bangun());
+
+        mengirim = false;
+
+        if (hasil is null)
+        {
+            await Muat();
+            error = apiError ?? "Gagal mengajukan sewa. Coba lagi.";
+            return;
+        }
+
+        await Cart.RefreshAsync(Auth.User?.Role);
+
+        Nav.NavigateTo(hasil.Count == 1
+            ? $"/sewaanku/{hasil.Bookings[0].Id}"
+            : "/sewaanku");
+    }
+}

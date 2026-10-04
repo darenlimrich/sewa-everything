@@ -1,0 +1,281 @@
+@page "/sewaanku"
+@inject SewaApi Api
+@inject AuthState Auth
+@inject NavigationManager Nav
+@inject LiveState Live
+@implements IDisposable
+
+<PageTitle>Sewaan Saya — Sewaku</PageTitle>
+
+<div class="container page-pad">
+    @if (!ready || Auth.User is null)
+    {
+        <h1 class="visually-hidden">Sewaan Saya</h1>
+        <Skeleton Bentuk="sewaan" />
+    }
+    else
+    {
+        <div class="acct">
+            <AccountNav User="Auth.User" />
+
+            <section class="acct__main acct__main--flush">
+                <h1 class="visually-hidden">Sewaan Saya</h1>
+
+                @if (!loading && !error && perlu.Count > 0)
+                {
+                    <div class="acct__todo">
+                        <ActionList Bookings="perlu" Kind="@NotificationKinds.Renter" Max="3" />
+                    </div>
+                }
+
+                <div class="tabbar" data-page-top>
+                    @foreach (var (value, label) in Tabs)
+                    {
+                        <a class="tabbar__tab @(IsOn(value) ? "tabbar__tab--on" : null)"
+                           href="@TabHref(value)">
+                            @label
+                            @if (IsOn(value) && result is { Total: > 0 })
+                            {
+                                <span class="tabbar__count">(@result.Total)</span>
+                            }
+                        </a>
+                    }
+                </div>
+
+                <div class="acct__pad">
+                    <div class="findbar">
+                        @Icons.Search
+                        <input value="@cari" @oninput="OnCari"
+                               placeholder="Cari berdasarkan nama barang, pemilik, atau nomor sewa"
+                               aria-label="Cari sewa" />
+                        @if (!string.IsNullOrWhiteSpace(cari))
+                        {
+                            <button type="button" class="findbar__clear" @onclick="ClearCari"
+                                    title="Hapus pencarian" aria-label="Hapus pencarian">@Icons.Close</button>
+                        }
+                    </div>
+
+                    @if (loading)
+                    {
+                        <Skeleton Bentuk="sewa" Jumlah="3" />
+                    }
+                    else if (error)
+                    {
+                        <div class="state">
+                            <h3>Gagal memuat</h3>
+                            <p>Server tidak menjawab.</p>
+                            <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+                        </div>
+                    }
+                    else if (Shown.Count == 0)
+                    {
+                        <div class="state">
+                            <h3>@(string.IsNullOrWhiteSpace(cari) ? "Belum ada sewa" : "Tidak ada yang cocok")</h3>
+                            <p>@EmptyText</p>
+                            @if (Status is null && string.IsNullOrWhiteSpace(cari))
+                            {
+                                <a class="btn btn--primary" href="/">Cari barang untuk disewa</a>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="booking-list">
+                            @foreach (var b in Shown)
+                            {
+                                <article class="card order">
+                                    <header class="order__head">
+                                        <span class="order__seller">@Icons.User @b.SellerName</span>
+                                        <a class="order__store" href="@($"/toko/{b.SellerId}")">@Icons.Box Kunjungi Toko</a>
+                                        <span class="order__state">
+                                            @Labels.BookingStatusHint(b.Status, b.HoldExpiresAt)
+                                            <b>@Labels.BookingStatus(b.Status).ToUpperInvariant()</b>
+                                        </span>
+                                    </header>
+
+                                    <a class="order__body" href="@($"/sewaanku/{b.Id}")">
+                                        <span class="order__thumb">
+                                            @if (Api.PhotoUrl(b.ItemPhotoUrl) is { } foto)
+                                            {
+                                                <img src="@foto" alt="" loading="lazy" />
+                                            }
+                                            else
+                                            {
+                                                <span class="placeholder">@Icons.Box</span>
+                                            }
+                                        </span>
+                                        <span class="order__main">
+                                            <span class="order__title">@b.ItemTitle</span>
+                                            <span class="order__meta">@Format.Range(b.StartsAt, b.EndsAt)</span>
+                                            <span class="order__meta">@b.DurationUnits @Format.Unit(b.PriceUnitSnapshot)</span>
+                                            <span class="order__meta"><span class="ref">@b.Reference</span></span>
+                                        </span>
+                                        <span class="order__price">@Format.Rupiah(b.PriceSnapshot)<span class="price-unit">@Format.PriceUnit(b.PriceUnitSnapshot)</span></span>
+                                    </a>
+
+                                    <footer class="order__foot">
+                                        <span class="order__total">
+                                            @if (Labels.ShowsAmount(b.Status))
+                                            {
+                                                <span>Total bayar: <b>@Format.Rupiah(b.RenterTotal)</b></span>
+                                                @if (Labels.AmountParts(b.TotalRent, b.DepositAmount, b.PlatformFeeAmount, b.PlatformFeeMode) is { Length: > 0 } rincian)
+                                                {
+                                                    <span class="order__parts">@rincian</span>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span>Sewa dibatalkan</span>
+                                            }
+                                        </span>
+                                        <span class="order__actions">
+                                            @if (Labels.AwaitingPayment(b.Status, b.HoldExpiresAt))
+                                            {
+                                                <a class="btn btn--primary btn--sm" href="@($"/sewaanku/{b.Id}/bayar")">Bayar</a>
+                                            }
+                                            <a class="btn btn--outline btn--sm" href="@($"/sewaanku/{b.Id}")">Lihat Detail</a>
+                                        </span>
+                                    </footer>
+                                </article>
+                            }
+                        </div>
+
+                        @if (string.IsNullOrWhiteSpace(cari) && result is not null)
+                        {
+                            <Pager Page="result.Page" TotalPages="result.TotalPages" Total="result.Total"
+                                   Noun="sewa" Busy="loading" OnGoTo="GoTo"
+                                   Jump="lompat" OnJumped="() => lompat = false" />
+                        }
+                    }
+                </div>
+            </section>
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "status")] public string? Status { get; set; }
+    [SupplyParameterFromQuery(Name = "hal")] public int? Halaman { get; set; }
+
+    private static readonly (string? Value, string Label)[] Tabs =
+    [
+        (null, "Semua"), ("pending", "Menunggu"), ("confirmed", "Dikonfirmasi"),
+        ("active", "Berlangsung"), ("completed", "Selesai"), ("disputed", "Sengketa"),
+        ("cancelled", "Dibatalkan")
+    ];
+
+    private PagedResponse<BookingResponse>? result;
+    private IReadOnlyList<BookingResponse> perlu = [];
+    private bool ready;
+    private bool loading = true;
+    private bool error;
+    private bool lompat;
+    private string? cari;
+
+    private IReadOnlyList<BookingResponse> Shown
+    {
+        get
+        {
+            if (result is null)
+            {
+                return [];
+            }
+
+            if (string.IsNullOrWhiteSpace(cari))
+            {
+                return result.Items;
+            }
+
+            var kata = cari.Trim();
+
+            return [.. result.Items.Where(b =>
+                b.ItemTitle.Contains(kata, StringComparison.OrdinalIgnoreCase)
+                || b.SellerName.Contains(kata, StringComparison.OrdinalIgnoreCase)
+                || b.Reference.Contains(kata, StringComparison.OrdinalIgnoreCase))];
+        }
+    }
+
+    private bool IsOn(string? value) =>
+        value is null ? Status is null : string.Equals(value, Status, StringComparison.OrdinalIgnoreCase);
+
+    private static string TabHref(string? value) =>
+        value is null ? "/sewaanku" : $"/sewaanku?status={value}";
+
+    private string EmptyText => !string.IsNullOrWhiteSpace(cari)
+        ? "Coba kata kunci lain, atau kosongkan pencariannya."
+        : Status is null
+            ? "Sewa yang Anda ajukan akan muncul di sini."
+            : "Tidak ada sewa dengan status ini.";
+
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        if (ready)
+        {
+            await Load();
+            StateHasChanged();
+        }
+    });
+
+    public void Dispose() => Live.Changed -= OnLive;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Auth.InitializeAsync();
+        if (!Auth.IsAuthenticated)
+        {
+            Nav.NavigateTo($"/masuk?returnUrl={Uri.EscapeDataString(CurrentPath())}");
+            return;
+        }
+
+        ready = true;
+        await Load();
+    }
+
+    private void OnCari(ChangeEventArgs e) => cari = e.Value?.ToString();
+
+    private void ClearCari() => cari = null;
+
+    private string CurrentPath() =>
+        Status is null ? "/sewaanku" : $"/sewaanku?status={Status}";
+
+    private void GoTo(int target)
+    {
+        lompat = true;
+
+        var query = new List<string>();
+        if (Status is not null) query.Add($"status={Uri.EscapeDataString(Status)}");
+        if (target > 1) query.Add($"hal={target}");
+
+        Nav.NavigateTo(query.Count == 0 ? "/sewaanku" : "/sewaanku?" + string.Join('&', query));
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        error = false;
+        try
+        {
+            result = await Api.GetBookingsAsync(status: Status, page: Halaman is > 0 ? Halaman.Value : 1);
+
+            var antre = await Api.GetBookingsAsync(status: "confirmed", page: 1);
+            perlu = antre?.Items ?? [];
+        }
+        catch
+        {
+            error = true;
+            result = null;
+            perlu = [];
+        }
+        finally
+        {
+            loading = false;
+        }
+
+        if (Paging.OutOfRange(result) is { } terakhir)
+        {
+            GoTo(terakhir);
+        }
+    }
+}

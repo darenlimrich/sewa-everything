@@ -1,0 +1,434 @@
+@page "/"
+@inject SewaApi Api
+@inject NavigationManager Nav
+
+<PageTitle>Sewaku — sewa barang mudah</PageTitle>
+
+<div class="container page-pad">
+    @if (Filtered)
+    {
+        <Breadcrumb Items="Crumbs" />
+        <div class="catalog-heading">
+            <div>
+                <h1>@(SelectedCategory ?? (string.IsNullOrWhiteSpace(Q) ? "Jelajahi barang" : $"Hasil untuk “{Q.Trim()}”"))</h1>
+                <p>@(loading ? "Mencari barang yang sesuai" : $"{result?.Total ?? 0} barang ditemukan")</p>
+            </div>
+            <a class="link" href="/">Lihat semua barang</a>
+        </div>
+        <div class="catalog__grid">
+            <aside class="filter">
+                <div class="filter__head">@Icons.Filter Filter</div>
+                <button type="button" class="filter__toggle @(filterOpen ? "filter__toggle--on" : null)"
+                        @onclick="() => filterOpen = !filterOpen"
+                        aria-expanded="@(filterOpen ? "true" : "false")">
+                    @Icons.Filter Filter
+                    <span class="filter__caret">@Icons.ChevronDown</span>
+                </button>
+
+                <div class="filter__body @(filterOpen ? "filter__body--on" : null)">
+                @if (categories.Count > 0)
+                {
+                    <section class="filter__sec">
+                        <h3>Kategori</h3>
+                        <label class="filter__opt">
+                            <input type="radio" name="kategori" checked="@(SelectedCategory is null)"
+                                   @onchange="() => PilihKategori(null)" />
+                            <span>Semua kategori</span>
+                        </label>
+                        @foreach (var c in categories)
+                        {
+                            var nama = c.Category;
+                            <label class="filter__opt">
+                                <input type="radio" name="kategori"
+                                       checked="@(string.Equals(nama, SelectedCategory, StringComparison.OrdinalIgnoreCase))"
+                                       @onchange="() => PilihKategori(nama)" />
+                                <span>@nama</span>
+                                <span class="filter__count">@c.Count</span>
+                            </label>
+                        }
+                    </section>
+                }
+
+                <section class="filter__sec">
+                    <h3>Rentang harga</h3>
+                    <div class="filter__range">
+                        <input type="number" min="0" step="1000" placeholder="Min" aria-label="Harga minimum" @bind="formMin" />
+                        <span class="filter__dash">—</span>
+                        <input type="number" min="0" step="1000" placeholder="Maks" aria-label="Harga maksimum" @bind="formMax" />
+                    </div>
+                    <button class="btn btn--outline btn--block" @onclick="TerapkanHarga">Terapkan harga</button>
+                </section>
+
+                <section class="filter__sec">
+                    <h3>Satuan sewa</h3>
+                    <label class="filter__opt">
+                        <input type="radio" name="satuan" checked="@(Satuan is null)"
+                               @onchange="() => PilihSatuan(null)" />
+                        <span>Semua satuan</span>
+                    </label>
+                    @foreach (var (value, label) in Labels.PriceUnitOptions)
+                    {
+                        var v = value;
+                        <label class="filter__opt">
+                            <input type="radio" name="satuan"
+                                   checked="@(string.Equals(v, Satuan, StringComparison.Ordinal))"
+                                   @onchange="() => PilihSatuan(v)" />
+                            <span>@label</span>
+                        </label>
+                    }
+                </section>
+
+                <section class="filter__sec">
+                    <h3>Tanggal sewa</h3>
+                    <div class="filter__date">
+                        <label>
+                            Mulai
+                            <input type="date" @bind="formDari" />
+                        </label>
+                        <label>
+                            Selesai
+                            <input type="date" @bind="formSampai" />
+                        </label>
+                    </div>
+                    <button class="btn btn--outline btn--block" @onclick="TerapkanTanggal">Terapkan tanggal</button>
+                </section>
+
+                <button class="btn btn--outline btn--block filter__reset" @onclick="HapusSemua">Hapus semua</button>
+                @if (filterError is not null)
+                {
+                    <p class="form__alert" role="alert">@filterError</p>
+                }
+                </div>
+            </aside>
+
+            <div class="catalog__main" data-page-top>
+                @if (ActiveFilters.Count > 0)
+                {
+                    <div class="active-filters" aria-label="Filter aktif">
+                        @foreach (var filter in ActiveFilters)
+                        {
+                            <button class="chip chip--active" aria-label="@($"Hapus filter {filter.Label}")"
+                                    @onclick="() => Navigate([(filter.Name, null)])">
+                                @filter.Label @Icons.Close
+                            </button>
+                        }
+                    </div>
+                }
+
+                <div class="sortbar">
+                    <span class="sortbar__label">Urutkan</span>
+                    <button class="sortbar__opt @(SortAktif == ItemSortOptions.Relevance ? "sortbar__opt--on" : null)"
+                            @onclick="() => PilihUrutan(ItemSortOptions.Relevance)">Terkait</button>
+                    <button class="sortbar__opt @(SortAktif == ItemSortOptions.Newest ? "sortbar__opt--on" : null)"
+                            @onclick="() => PilihUrutan(ItemSortOptions.Newest)">Terbaru</button>
+                    <select value="@HargaPilihan" @onchange="UbahUrutanHarga" aria-label="Urutkan harga">
+                        <option value="">Harga</option>
+                        <option value="@ItemSortOptions.PriceAsc">Harga terendah</option>
+                        <option value="@ItemSortOptions.PriceDesc">Harga tertinggi</option>
+                    </select>
+
+                    @if (result is { Total: > 0 })
+                    {
+                        <div class="sortbar__page">
+                            <span class="sortbar__count"><b>@result.Page</b>/@result.TotalPages</span>
+                            <button class="sortbar__nav" disabled="@(result.Page <= 1)" aria-label="Halaman sebelumnya"
+                                    @onclick="() => GoTo(result.Page - 1)">@Icons.ChevronLeft</button>
+                            <button class="sortbar__nav" disabled="@(result.Page >= result.TotalPages)" aria-label="Halaman berikutnya"
+                                    @onclick="() => GoTo(result.Page + 1)">@Icons.ChevronRight</button>
+                        </div>
+                    }
+                </div>
+
+                @Katalog
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="catalog-heading">
+            <div>
+                <h1>Mau sewa apa hari ini?</h1>
+                <p>Temukan barangnya, pilih tanggalnya.</p>
+            </div>
+            <a class="catalog-heading__browse" href="/?satuan=day">@Icons.Calendar Sewa harian</a>
+        </div>
+        @if (categories.Count > 0)
+        {
+            <section class="panel cat-panel">
+                <h2 class="cat-panel__head">Jelajahi kategori</h2>
+                <div class="cat-grid">
+                    @foreach (var c in categories)
+                    {
+                        <a class="cat-tile" href="@($"/?category={Uri.EscapeDataString(c.Category)}")">
+                            <span class="cat-tile__photo">
+                                @if (FotoKategori(c) is { } foto)
+                                {
+                                    <img src="@foto" alt="" loading="lazy" />
+                                }
+                                else
+                                {
+                                    @Inisial(c.Category)
+                                }
+                            </span>
+                            <span class="cat-tile__name">@c.Category</span>
+                            <span class="cat-tile__count">@c.Count barang</span>
+                        </a>
+                    }
+                </div>
+            </section>
+        }
+
+        <section class="reco" data-page-top>
+            <div class="reco__head">
+                <h2>Barang terbaru</h2>
+                @if (result is { Total: > 0 })
+                {
+                    <span class="muted">@result.Total barang untuk disewa</span>
+                }
+            </div>
+            <div class="reco__body">
+                @Katalog
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    private const int PageSize = 20;
+
+    [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
+    [SupplyParameterFromQuery(Name = "category")] public string? SelectedCategory { get; set; }
+    [SupplyParameterFromQuery(Name = "hal")] public int? Halaman { get; set; }
+    [SupplyParameterFromQuery(Name = "urut")] public string? Urut { get; set; }
+    [SupplyParameterFromQuery(Name = "min")] public decimal? Min { get; set; }
+    [SupplyParameterFromQuery(Name = "max")] public decimal? Max { get; set; }
+    [SupplyParameterFromQuery(Name = "satuan")] public string? Satuan { get; set; }
+    [SupplyParameterFromQuery(Name = "dari")] public string? Dari { get; set; }
+    [SupplyParameterFromQuery(Name = "sampai")] public string? Sampai { get; set; }
+
+    private PagedResponse<ItemSummaryResponse>? result;
+    private IReadOnlyList<ItemCategoryResponse> categories = [];
+    private bool loading = true;
+    private bool error;
+
+    private bool lompat;
+    private bool filterOpen;
+    private string? filterError;
+    private decimal? formMin;
+    private decimal? formMax;
+    private DateTime? formDari;
+    private DateTime? formSampai;
+
+    private IReadOnlyList<(string Name, string Label)> ActiveFilters =>
+        new (string Name, string? Label)[]
+        {
+            ("category", SelectedCategory),
+            ("q", string.IsNullOrWhiteSpace(Q) ? null : Q.Trim()),
+            ("min", Min is { } min ? $"Mulai {Format.Rupiah(min)}" : null),
+            ("max", Max is { } max ? $"Hingga {Format.Rupiah(max)}" : null),
+            ("satuan", Satuan is { } satuan ? $"Per {Format.Unit(satuan)}" : null),
+            ("dari", Dari is { } dari ? $"Mulai {dari}" : null),
+            ("sampai", Sampai is { } sampai ? $"Selesai {sampai}" : null)
+        }.Where(f => f.Label is not null).Select(f => (f.Name, f.Label!)).ToList();
+
+    private bool Filtered =>
+        !string.IsNullOrWhiteSpace(Q) || SelectedCategory is not null || Min is not null || Max is not null
+        || Satuan is not null || Dari is not null || Sampai is not null;
+
+    private string SortAktif =>
+        ItemSortOptions.IsKnown(Urut) ? Urut!
+        : !string.IsNullOrWhiteSpace(Q) ? ItemSortOptions.Relevance
+        : ItemSortOptions.Newest;
+
+    private string HargaPilihan =>
+        SortAktif is ItemSortOptions.PriceAsc or ItemSortOptions.PriceDesc ? SortAktif : string.Empty;
+
+    private IReadOnlyList<Breadcrumb.Crumb> Crumbs =>
+    [
+        new("Beranda", "/"),
+        new(SelectedCategory ?? (string.IsNullOrWhiteSpace(Q) ? "Filter" : Q.Trim()))
+    ];
+
+    private static string Inisial(string name) =>
+        string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[..1].ToUpperInvariant();
+
+    private string? FotoKategori(ItemCategoryResponse kategori) => Api.PhotoUrl(kategori.PhotoUrl);
+
+    private RenderFragment Katalog => @<text>
+        @if (loading)
+        {
+            <Skeleton Bentuk="kartu" Jumlah="10" />
+        }
+        else if (error)
+        {
+            <div class="state">
+                <h3>Gagal memuat</h3>
+                <p>Server tidak menjawab.</p>
+                <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+            </div>
+        }
+        else if (result is null || result.Items.Count == 0)
+        {
+            <div class="state">
+                <h3>Belum ada barang</h3>
+                <p>@EmptyText</p>
+                @if (Filtered)
+                {
+                    <button class="btn btn--outline" @onclick="HapusSemua">Lihat semua barang</button>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="grid">
+                @foreach (var item in result.Items)
+                {
+                    <ProductCard Item="item" />
+                }
+            </div>
+
+            <Pager Page="result.Page" TotalPages="result.TotalPages" Total="result.Total"
+                   Noun="barang" Busy="loading" OnGoTo="GoTo"
+                   Jump="lompat" OnJumped="() => lompat = false" />
+        }
+    </text>;
+
+    private string EmptyText =>
+        !string.IsNullOrWhiteSpace(Q) ? "Coba kata kunci lain."
+        : SelectedCategory is not null ? "Belum ada barang di kategori ini — coba kategori lain."
+        : "Katalog masih kosong.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            categories = await Api.GetItemCategoriesAsync();
+        }
+        catch
+        {
+            categories = [];
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        formMin = Min;
+        filterError = null;
+        formMax = Max;
+        formDari = TanggalDari(Dari);
+        formSampai = TanggalDari(Sampai);
+        await Load();
+    }
+
+    private static DateTime? TanggalDari(string? value) =>
+        DateTime.TryParse(value, out var parsed) ? parsed : null;
+
+    private static string? Teks(DateTime? value) => value?.ToString("yyyy-MM-dd");
+
+    private void PilihKategori(string? category) => Navigate([("category", category)]);
+    private void PilihSatuan(string? satuan) => Navigate([("satuan", satuan)]);
+    private void PilihUrutan(string urut) => Navigate([("urut", urut)]);
+
+    private void UbahUrutanHarga(ChangeEventArgs e) =>
+        Navigate([("urut", e.Value as string is { Length: > 0 } pilihan ? pilihan : ItemSortOptions.Newest)]);
+
+    private void TerapkanHarga()
+    {
+        if (formMin < 0 || formMax < 0 || (formMin is not null && formMax is not null && formMin > formMax))
+        {
+            filterError = "Isi harga mulai dari 0. Harga maksimum harus lebih besar atau sama dengan minimum.";
+            return;
+        }
+        Navigate([("min", Angka(formMin)), ("max", Angka(formMax))]);
+    }
+
+    private void TerapkanTanggal()
+    {
+        if ((formDari is null) != (formSampai is null) || formSampai < formDari)
+        {
+            filterError = "Isi tanggal mulai dan selesai. Tanggal selesai tidak boleh sebelum tanggal mulai.";
+            return;
+        }
+        Navigate([("dari", Teks(formDari)), ("sampai", Teks(formSampai))]);
+    }
+
+    private void HapusSemua() => Nav.NavigateTo("/");
+
+    private static string? Angka(decimal? value) =>
+        value?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private void GoTo(int target)
+    {
+        lompat = true;
+        Navigate([], target);
+    }
+
+    private void Navigate(IReadOnlyList<(string Name, string? Value)> ubah, int? hal = null)
+    {
+        List<(string Name, string? Value)> sekarang =
+        [
+            ("q", Q),
+            ("category", SelectedCategory),
+            ("satuan", Satuan),
+            ("urut", ItemSortOptions.IsKnown(Urut) ? Urut : null),
+            ("min", Angka(Min)),
+            ("max", Angka(Max)),
+            ("dari", Dari),
+            ("sampai", Sampai)
+        ];
+
+        var query = new List<string>();
+
+        foreach (var (name, value) in sekarang)
+        {
+            var dipakai = ubah.FirstOrDefault(u => u.Name == name) is { Name: not null } baru
+                ? baru.Value
+                : value;
+
+            if (!string.IsNullOrWhiteSpace(dipakai))
+            {
+                query.Add($"{name}={Uri.EscapeDataString(dipakai)}");
+            }
+        }
+
+        var target = hal ?? 1;
+        if (target > 1) query.Add($"hal={target}");
+
+        Nav.NavigateTo(query.Count == 0 ? "/" : "/?" + string.Join('&', query));
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        error = false;
+
+        try
+        {
+            result = await Api.SearchItemsAsync(
+                q: Q,
+                category: SelectedCategory,
+                sort: SortAktif,
+                page: Halaman is > 0 ? Halaman.Value : 1,
+                pageSize: PageSize,
+                minPrice: Min,
+                maxPrice: Max,
+                priceUnit: Satuan,
+                availableFrom: TanggalDari(Dari) is { } d ? DateOnly.FromDateTime(d) : null,
+                availableTo: TanggalDari(Sampai) is { } s ? DateOnly.FromDateTime(s) : null);
+        }
+        catch
+        {
+            error = true;
+            result = null;
+        }
+        finally
+        {
+            loading = false;
+        }
+
+        if (Paging.OutOfRange(result) is { } terakhir)
+        {
+            GoTo(terakhir);
+        }
+    }
+}

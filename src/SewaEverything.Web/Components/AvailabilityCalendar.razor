@@ -1,0 +1,81 @@
+<div class="cal">
+    <div class="cal__head">
+        <button type="button" class="cal__nav" @onclick="PrevMonth"
+                disabled="@(!model.CanGoPrev)" aria-label="Bulan sebelumnya">@Icons.ChevronLeft</button>
+        <span class="cal__month">@model.MonthLabel</span>
+        <button type="button" class="cal__nav" @onclick="NextMonth"
+                disabled="@(!model.CanGoNext)" aria-label="Bulan berikutnya">@Icons.ChevronRight</button>
+    </div>
+    <div class="cal__grid cal__dow">
+        @foreach (var d in AvailabilityCalendarModel.DayNames)
+        {
+            <span>@d</span>
+        }
+    </div>
+
+    <div class="cal__grid">
+        @for (var i = 0; i < model.Lead; i++)
+        {
+            <span class="cal__pad"></span>
+        }
+        @foreach (var day in model.DaysInMonth)
+        {
+            var state = model.StateOf(day);
+            <button type="button" class="cal__day @ClassOf(state)"
+                    disabled="@(state is CalendarDayState.Off or CalendarDayState.Blocked)"
+                    @onclick="() => Pick(day)">
+                @day.Day
+            </button>
+        }
+    </div>
+    <div class="cal__legend">
+        <span><i class="dot dot--free"></i> Tersedia</span>
+        <span><i class="dot dot--sel"></i> Dipilih</span>
+        <span><i class="dot dot--blocked"></i> Terisi</span>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<BlockedRangeResponse> Blocked { get; set; } = [];
+    [Parameter, EditorRequired] public DateOnly MinDate { get; set; }
+    [Parameter, EditorRequired] public DateOnly MaxDate { get; set; }
+    [Parameter] public EventCallback<(DateOnly Start, DateOnly End)?> OnChange { get; set; }
+
+    private AvailabilityCalendarModel model = EmptyModel();
+    private static AvailabilityCalendarModel EmptyModel()
+    {
+        var hariIni = DateOnly.FromDateTime(DateTime.UtcNow);
+        return new AvailabilityCalendarModel([], hariIni, hariIni);
+    }
+    private IReadOnlyList<BlockedRangeResponse>? builtFrom;
+    private DateOnly builtMin, builtMax;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(builtFrom, Blocked) && builtMin == MinDate && builtMax == MaxDate)
+        {
+            return;
+        }
+        model = new AvailabilityCalendarModel(Blocked, MinDate, MaxDate);
+        builtFrom = Blocked;
+        builtMin = MinDate;
+        builtMax = MaxDate;
+    }
+    private void PrevMonth() => model.PrevMonth();
+    private void NextMonth() => model.NextMonth();
+    private static string ClassOf(CalendarDayState s) => s switch
+    {
+        CalendarDayState.Off          => "cal__day--off",
+        CalendarDayState.Blocked      => "cal__day--blocked",
+        CalendarDayState.SelectedEdge => "cal__day--sel-edge",
+        CalendarDayState.SelectedMid  => "cal__day--sel-mid",
+        _                             => ""
+    };
+    private async Task Pick(DateOnly d)
+    {
+        if (model.Pick(d))
+        {
+            await OnChange.InvokeAsync(model.Selection);
+        }
+    }
+}

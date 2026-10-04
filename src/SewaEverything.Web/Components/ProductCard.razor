@@ -1,0 +1,40 @@
+@inject SewaApi Api
+
+<a class="card product-card" href="@($"/barang/{Item.Id}")">
+    <div class="product-card__media">
+        @if (Photo is not null)
+        {
+            <img src="@Photo" alt="@Item.Title" loading="lazy" decoding="async" width="320" height="320" />
+        }
+        else
+        {
+            <span class="placeholder">@Icons.Box</span>
+        }
+        @if (Item.DepositAmount > 0)
+        {
+            <span class="product-card__ribbon">Deposit @Format.Rupiah(Item.DepositAmount)</span>
+        }
+    </div>
+    <div class="product-card__body">
+        <div class="product-card__title">@Item.Title</div>
+        <div class="product-card__price">
+            <span class="price"><span class="price__cur">Rp</span>@Format.RupiahAngka(Item.Price)</span><span class="price-unit">@Format.PriceUnit(Item.PriceUnit)</span>
+        </div>
+        <div class="product-card__meta">
+            @if (Item.RatingCount > 0)
+            {
+                <span class="stat-rating">@Icons.Star @Format.NilaiRingkas(Item.RatingAverage)</span>
+            }
+            @if (Item.RentedCount > 0)
+            {
+                <span>@Item.RentedCount× disewa</span>
+            }
+        </div>
+    </div>
+</a>
+
+@code {
+    [Parameter, EditorRequired] public ItemSummaryResponse Item { get; set; } = default!;
+
+    private string? Photo => Api.PhotoUrl(Item.PrimaryPhotoUrl);
+}

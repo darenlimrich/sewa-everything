@@ -1,0 +1,230 @@
+@page "/jual"
+@layout SellerLayout
+@inject SewaApi Api
+@inject AuthState Auth
+@inject LiveState Live
+@implements IDisposable
+
+<PageTitle>Jualan saya — Sewaku</PageTitle>
+
+<div class="seller-head">
+    <h1 class="page-title">Ringkasan</h1>
+    <a class="btn btn--primary" href="/jual/barang/baru">@Icons.Plus Pasang barang</a>
+</div>
+
+@if (loading)
+{
+    <Skeleton Bentuk="statistik" Jumlah="3" Rapat />
+}
+else
+{
+    @if (error)
+    {
+        <div class="state">
+            <h3>Gagal memuat</h3>
+            <p>Server tidak menjawab.</p>
+            <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+        </div>
+    }
+    else
+    {
+        @if (!verified)
+        {
+            <div class="notice notice--warning">
+                <span class="notice__icon">@Icons.Alert</span>
+                <div>
+                    <div class="notice__title">Menunggu verifikasi admin</div>
+                    <p>Barang dapat disiapkan sekarang, tetapi baru tampil di katalog setelah
+                       dokumen Anda diverifikasi.</p>
+                </div>
+            </div>
+        }
+
+        @if (!hasPayoutAccount)
+        {
+            <div class="notice notice--warning">
+                <span class="notice__icon">@Icons.Alert</span>
+                <div>
+                    <div class="notice__title">Belum ada rekening pencairan</div>
+                    <p>Sewa belum dapat disetujui sebelum rekening pencairan didaftarkan.
+                       <a class="link" href="/jual/rekening">Tambah rekening</a></p>
+                </div>
+            </div>
+        }
+
+        @if (rejectedCount > 0)
+        {
+            <div class="notice notice--warning">
+                <span class="notice__icon">@Icons.Alert</span>
+                <div>
+                    <div class="notice__title">@rejectedCount barang ditolak admin</div>
+                    <p>Alasannya ada di halaman barangnya. <a class="notice__link" href="/jual/barang">Buka daftar barang</a></p>
+                </div>
+            </div>
+        }
+
+        @if (pendingCount > 0)
+        {
+            <div class="notice notice--action">
+                <span class="notice__icon">@Icons.Inbox</span>
+                <div>
+                    <div class="notice__title">@pendingCount booking menunggu persetujuan</div>
+                    <p>Penyewa menunggu keputusan Anda. <a class="notice__link" href="/jual/booking?status=pending">Tinjau sekarang</a></p>
+                </div>
+            </div>
+        }
+
+        <h2 class="section-sub">Sewa masuk</h2>
+        <div class="stat-grid stat-grid--tight">
+            <div class="card stat">
+                <div class="stat__value">@bookingTotal</div>
+                <div class="stat__label">Total sewa masuk</div>
+            </div>
+            <div class="card stat">
+                <div class="stat__value">@pendingCount</div>
+                <div class="stat__label">Menunggu persetujuan</div>
+            </div>
+            <div class="card stat">
+                <div class="stat__value">@activeBookings</div>
+                <div class="stat__label">Sedang berjalan</div>
+            </div>
+        </div>
+
+        <h2 class="section-sub">Barang</h2>
+        <div class="stat-grid stat-grid--tight">
+            <div class="card stat">
+                <div class="stat__value">@total</div>
+                <div class="stat__label">Total barang</div>
+            </div>
+            <div class="card stat">
+                <div class="stat__value">@liveCount</div>
+                <div class="stat__label">Tampil di katalog</div>
+            </div>
+            <div class="card stat">
+                <div class="stat__value">@reviewCount</div>
+                <div class="stat__label">Menunggu verifikasi</div>
+            </div>
+        </div>
+
+        <h2 class="section-sub">Sewa masuk terbaru</h2>
+        @if (recent.Count == 0)
+        {
+            <div class="state state--flush">
+                <h3>Belum ada sewa masuk</h3>
+                <p>Sewa muncul di sini setelah penyewa memesan barang Anda.</p>
+            </div>
+        }
+        else
+        {
+            <div class="booking-list">
+                @foreach (var b in recent)
+                {
+                    <a class="card item-row" href="@($"/jual/booking/{b.Id}")">
+                        <div class="item-row__media">
+                            @if (Api.PhotoUrl(b.ItemPhotoUrl) is { } foto)
+                            {
+                                <img src="@foto" alt="" loading="lazy" />
+                            }
+                            else
+                            {
+                                <span class="placeholder">@Icons.Box</span>
+                            }
+                        </div>
+                        <div class="item-row__main">
+                            <div class="item-row__title">@b.ItemTitle</div>
+                            <div class="item-row__meta">@b.RenterName · @Format.Range(b.StartsAt, b.EndsAt)</div>
+                        </div>
+                        <div class="item-row__side">
+                            <StatusBadge Status="@b.Status" />
+                            <span class="item-row__meta">@(Labels.ShowsAmount(b.Status) ? Format.Rupiah(b.SellerGross) : "—")</span>
+                        </div>
+                    </a>
+                }
+            </div>
+        }
+
+        <div class="seller-actions">
+            <a class="btn btn--outline" href="/jual/barang">Kelola barang</a>
+            <a class="btn btn--outline" href="/jual/booking">Sewa masuk</a>
+            <a class="btn btn--outline" href="/jual/rekening">Kelola rekening</a>
+        </div>
+    }
+}
+
+@code {
+    private bool loading = true;
+    private bool error;
+
+    private bool verified;
+    private bool hasPayoutAccount;
+    private int total;
+    private int liveCount;
+    private int reviewCount;
+    private int rejectedCount;
+    private int pendingCount;
+    private int bookingTotal;
+    private int activeBookings;
+    private IReadOnlyList<BookingResponse> recent = [];
+
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        await Load();
+        StateHasChanged();
+    });
+
+    public void Dispose() => Live.Changed -= OnLive;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        error = false;
+
+        try
+        {
+            var me = await Api.GetMeAsync();
+            if (me is not null)
+            {
+                await Auth.UpdateUserAsync(me);
+                verified = me.IsVerified;
+            }
+            else
+            {
+                verified = Auth.User?.IsVerified ?? false;
+            }
+
+            var items    = await Api.GetMyItemsAsync();
+            var accounts = await Api.GetPayoutAccountsAsync();
+            var pending  = await Api.GetBookingsAsync(status: "pending");
+            var berjalan = await Api.GetBookingsAsync(status: "active");
+            var semua    = await Api.GetBookingsAsync(pageSize: 5);
+
+            total            = items.Count;
+            liveCount        = verified
+                ? items.Count(i => i.Status == "active" && i.SuspendedAt is null && i.ReviewStatus == "approved")
+                : 0;
+            reviewCount      = items.Count(i => i.ReviewStatus == "pending");
+            rejectedCount    = items.Count(i => i.ReviewStatus == "rejected");
+            hasPayoutAccount = accounts.Count > 0;
+            pendingCount     = pending?.Total ?? 0;
+            activeBookings   = berjalan?.Total ?? 0;
+            bookingTotal     = semua?.Total ?? 0;
+            recent           = semua?.Items ?? [];
+        }
+        catch
+        {
+            error = true;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+}

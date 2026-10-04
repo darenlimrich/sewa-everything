@@ -1,0 +1,105 @@
+@page "/atur-ulang"
+@inject SewaApi Api
+@inject NavigationManager Nav
+
+<PageTitle>Kata sandi baru — Sewaku</PageTitle>
+
+<div class="container">
+    <div class="auth">
+        @if (selesai)
+        {
+            <h1 class="auth__title">Kata sandi diperbarui</h1>
+            <p class="auth__sub">
+                Silakan masuk dengan kata sandi baru Anda. Sesi lama di perangkat lain sudah
+                diakhiri.
+            </p>
+
+            <a class="btn btn--primary btn--block" href="@Routes.PublicLogin">Masuk</a>
+        }
+        else if (tautanMati)
+        {
+            <h1 class="auth__title">Tautan sudah tidak berlaku</h1>
+            <p class="auth__sub">@error</p>
+
+            <a class="btn btn--primary btn--block" href="/lupa-sandi">Minta tautan baru</a>
+        }
+        else
+        {
+            <h1 class="auth__title">Buat kata sandi baru</h1>
+            <p class="auth__sub">Pilih kata sandi yang belum pernah Anda pakai di layanan lain.</p>
+
+            <EditForm Model="model" OnValidSubmit="Submit" class="form">
+                <DataAnnotationsValidator />
+
+                @if (error is not null)
+                {
+                    <div class="form__alert" role="alert">@error</div>
+                }
+
+                <div class="field">
+                    <label for="password">Kata sandi baru</label>
+                    <PasswordField Id="password" @bind-Value="model.Password" Autocomplete="new-password" />
+                    <ValidationMessage For="() => model.Password" />
+                    <span class="field__hint">@PasswordPolicy.Aturan</span>
+                </div>
+
+                <div class="field">
+                    <label for="confirm">Ulangi kata sandi baru</label>
+                    <PasswordField Id="confirm" @bind-Value="model.Confirm" Autocomplete="new-password" />
+                    <ValidationMessage For="() => model.Confirm" />
+                </div>
+
+                <button type="submit" class="btn btn--primary btn--block" disabled="@busy">
+                    @(busy ? "Menyimpan…" : "Simpan kata sandi")
+                </button>
+            </EditForm>
+        }
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "token")] public string? Token { get; set; }
+
+    private readonly ResetForm model = new();
+    private bool busy;
+    private bool selesai;
+    private bool tautanMati;
+    private string? error;
+
+    protected override void OnInitialized()
+    {
+        if (string.IsNullOrWhiteSpace(Token))
+        {
+            tautanMati = true;
+            error = "Tautan atur ulang tidak lengkap. Minta tautan baru lewat halaman lupa kata sandi.";
+        }
+    }
+
+    private async Task Submit()
+    {
+        busy = true;
+        error = null;
+
+        var (berhasil, mati, pesan) = await Api.ResetPasswordAsync(new ResetPasswordRequest
+        {
+            Token = Token ?? string.Empty,
+            Password = model.Password
+        });
+
+        busy = false;
+        selesai = berhasil;
+        tautanMati = mati;
+        error = berhasil ? null : pesan ?? "Kata sandi gagal disimpan. Coba lagi.";
+    }
+
+    private sealed class ResetForm
+    {
+        [Required(ErrorMessage = "Kata sandi baru wajib diisi.")]
+        [StrongPassword]
+        public string Password { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Ulangi kata sandi baru Anda.")]
+        [Compare(nameof(Password), ErrorMessage = "Kedua kata sandi belum sama.")]
+        public string Confirm { get; set; } = string.Empty;
+    }
+}

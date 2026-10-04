@@ -1,0 +1,30 @@
+# Build
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.user
+*.suo
+
+# IDE
+.vs/
+.idea/
+.vscode/
+
+# Rahasia lokal — berisi kunci penanda tangan JWT dan sandi database.
+# Ada contohnya di appsettings.Development.example.json.
+# Di produksi, isi lewat environment variable (Jwt__SigningKey, ConnectionStrings__Postgres).
+src/SewaEverything.Api/appsettings.Development.json
+appsettings.*.local.json
+*.env
+
+# Foto unggahan seller. Konten runtime, bukan sumber — folder ini dibuat sendiri saat API
+# menyala (Storage:Photos:RootPath). Di produksi arahkan ke object storage.
+src/SewaEverything.Api/storage/
+
+# Berkas kerja sementara — log, tangkapan layar, skrip sekali pakai. Bukan sumber.
+scratchpad/
+
+# Lain-lain
+*.log

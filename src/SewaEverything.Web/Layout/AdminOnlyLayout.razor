@@ -1,0 +1,29 @@
+@inherits LayoutComponentBase
+@layout AdminLayout
+@inject AuthState Auth
+@if (gate == Gate.Loading)
+{
+    <Skeleton Bentuk="tabel" Kolom="5" />
+}
+else if (gate == Gate.Forbidden)
+{
+    <div class="state">
+        <h3>Khusus admin</h3>
+        <p>Antrean ini dikerjakan admin, bukan superadmin.</p>
+        <a class="btn btn--outline" href="/owner/admin">Akun admin</a>
+    </div>
+}
+else
+{
+    @Body
+}
+@code {
+    private enum Gate { Loading, Forbidden, Ready }
+    private Gate gate = Gate.Loading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+        gate = Auth.User?.Role == "admin" ? Gate.Ready : Gate.Forbidden;
+    }
+}

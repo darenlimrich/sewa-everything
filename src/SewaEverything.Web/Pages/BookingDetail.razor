@@ -1,0 +1,426 @@
+@page "/sewaanku/{Id:guid}"
+@inject SewaApi Api
+@inject AuthState Auth
+@inject NavigationManager Nav
+@inject LiveState Live
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>Detail sewa — Sewaku</PageTitle>
+
+@if (!ready || loading)
+{
+    <div class="container page-pad">
+        <h1 class="visually-hidden">Detail sewa</h1>
+        <Skeleton Bentuk="detail" />
+    </div>
+}
+else if (booking is null)
+{
+    <div class="container page-pad">
+        <h1 class="visually-hidden">Sewa tidak ditemukan</h1>
+        <div class="state">
+            <h3>Sewa tidak ditemukan</h3>
+            <p>Sewa tidak ditemukan atau bukan milik Anda.</p>
+            <a class="btn btn--outline" href="/sewaanku">Kembali ke Sewaanku</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="container page-pad detail-narrow">
+        <a class="back-link" href="/sewaanku">@Icons.ChevronLeft Sewaanku</a>
+
+        <div class="booking-head">
+            <h1 class="page-title">@booking.ItemTitle</h1>
+            <StatusBadge Status="@booking.Status" />
+        </div>
+        <p class="booking-head__hint"><span class="ref">@booking.Reference</span></p>
+        <p class="booking-head__hint">@Labels.BookingStatusHint(booking.Status, booking.HoldExpiresAt)</p>
+        @if (booking.HoldExpiresAt is { } deadline)
+        {
+            <div class="notice notice--warning">
+                <span class="notice__icon">@Icons.Alert</span>
+                <div>
+                    <div class="notice__title">Selesaikan sebelum @Format.Waktu(deadline)</div>
+                    <p>Setelah tenggat ini, sewa dibatalkan otomatis dan tanggalnya kembali tersedia.</p>
+                </div>
+            </div>
+        }
+        <div class="card account">
+            <div class="account__row"><span class="k">Pemilik</span><span>@booking.SellerName</span></div>
+            <div class="account__row"><span class="k">Waktu sewa</span><span>@Format.Range(booking.StartsAt, booking.EndsAt)</span></div>
+            <div class="account__row"><span class="k">Durasi</span><span>@booking.DurationUnits @Format.Unit(booking.PriceUnitSnapshot)</span></div>
+            <div class="account__row"><span class="k">Harga</span><span>@Format.Rupiah(booking.PriceSnapshot)@Format.PriceUnit(booking.PriceUnitSnapshot)</span></div>
+        </div>
+        <h2 class="section-sub">Rincian biaya</h2>
+        <div class="card account">
+            <div class="account__row">
+                <span class="k">Sewa (@booking.DurationUnits @Format.Unit(booking.PriceUnitSnapshot))</span>
+                <span>@Format.Rupiah(booking.TotalRent)</span>
+            </div>
+            @if (booking.PlatformFeeMode == "on_top" && booking.PlatformFeeAmount > 0)
+            {
+                <div class="account__row"><span class="k">Biaya layanan</span><span>@Format.Rupiah(booking.PlatformFeeAmount)</span></div>
+            }
+            @if (booking.DepositAmount > 0)
+            {
+                <div class="account__row">
+                    <span class="k">Deposit <span class="muted">(dikembalikan)</span></span>
+                    <span>@Format.Rupiah(booking.DepositAmount)</span>
+                </div>
+            }
+            <div class="account__row account__row--total">
+                <span class="k">Total bayar</span>
+                <span class="price">@Format.Rupiah(booking.RenterTotal)</span>
+            </div>
+        </div>
+
+        @if (Deposit is { } dep)
+        {
+            <h2 class="section-sub">Deposit</h2>
+            <div class="card dep dep--@(dep.Nada.ToString().ToLowerInvariant())">
+                <span class="dep__icon">
+                    @(dep.Nada == DepositTone.Selesai ? Icons.Check
+                      : dep.Nada == DepositTone.Diproses ? Icons.Info : Icons.Lock)
+                </span>
+                <div class="dep__main">
+                    <div class="dep__head">
+                        <b>@dep.Judul</b>
+                        <span class="dep__amount">@Format.Rupiah(dep.Nominal)</span>
+                    </div>
+                    <p class="dep__text">@dep.Penjelasan</p>
+                    @if (dep.Dipotong > 0m)
+                    {
+                        <p class="dep__cut">Dipotong @Format.Rupiah(dep.Dipotong) dari hasil sengketa.</p>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (booking.DeliveryMethod == DeliveryMethodValues.Delivery)
+        {
+            <h2 class="section-sub">Pengiriman</h2>
+            <div class="card account">
+                <div class="account__row">
+                    <span class="k">Cara</span><span>Diantar pemilik</span>
+                </div>
+                <div class="account__row">
+                    <span class="k">Biaya antar</span><span>@Format.Rupiah(booking.DeliveryFee)</span>
+                </div>
+                <div class="account__row">
+                    <span class="k">Penerima</span><span>@booking.DeliveryRecipient · @booking.DeliveryPhone</span>
+                </div>
+                <div class="account__row">
+                    <span class="k">Alamat</span><span>@booking.DeliveryAddress</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(booking.DeliveryNotes))
+                {
+                    <div class="account__row">
+                        <span class="k">Catatan</span><span>@booking.DeliveryNotes</span>
+                    </div>
+                }
+            </div>
+        }
+
+        @if (ledger is { } l)
+        {
+            <h2 class="section-sub">Pembayaran</h2>
+            <div class="card account">
+                <div class="account__row">
+                    <span class="k">Sudah masuk</span>
+                    <span>@Format.Rupiah(l.AmountSettled) dari @Format.Rupiah(l.AmountDue)</span>
+                </div>
+                @if (l.AmountRefundPending > 0)
+                {
+                    <div class="account__row">
+                        <span class="k">Pengembalian dana diproses</span>
+                        <span>@Format.Rupiah(l.AmountRefundPending)</span>
+                    </div>
+                }
+                @foreach (var entry in l.Entries)
+                {
+                    <div class="account__row">
+                        <span class="k">@Labels.PaymentKind(entry.Kind) · @Format.Tanggal(entry.CreatedAt)</span>
+                        <span>@Format.Rupiah(entry.Amount) · @Labels.PaymentStatus(entry.Status)</span>
+                    </div>
+                }
+            </div>
+        }
+        @if (review is { } r)
+        {
+            <h2 class="section-sub">Penilaian Anda</h2>
+            <div class="card account">
+                <div class="account__row"><span class="k">Bintang</span><span>@r.Rating / 5</span></div>
+                @if (!string.IsNullOrWhiteSpace(r.Comment))
+                {
+                    <div class="account__row"><span class="k">Komentar</span><span>@r.Comment</span></div>
+                }
+                <div class="account__row"><span class="k">Dikirim</span><span>@Format.Tanggal(r.CreatedAt)</span></div>
+            </div>
+        }
+        @if (actionError is not null)
+        {
+            <div class="form__alert" role="alert">@actionError</div>
+        }
+        <div class="booking-actions">
+            @if (CanPay)
+            {
+                <a class="btn btn--primary" href="@($"/sewaanku/{Id}/bayar")">Bayar sekarang</a>
+            }
+            @if (CanReview && !reviewing)
+            {
+                <button class="btn btn--primary" @onclick="() => reviewing = true">Beri penilaian</button>
+            }
+            @if (CanDispute && !disputing)
+            {
+                <button class="btn btn--outline" @onclick="() => disputing = true">Ajukan sengketa</button>
+            }
+            @if (CanCancel && !confirmingCancel)
+            {
+                <button class="btn btn--outline" @onclick="() => confirmingCancel = true">Batalkan sewa</button>
+            }
+        </div>
+        @if (CanCancel && confirmingCancel)
+        {
+            <div class="confirm">
+                <p>Batalkan sewa ini? Dana yang sudah dibayar dikembalikan penuh.</p>
+                <div class="confirm__actions">
+                    <button class="btn btn--outline" @onclick="() => confirmingCancel = false" disabled="@cancelling">Tidak</button>
+                    <button class="btn btn--primary" @onclick="DoCancel" disabled="@cancelling">
+                        @(cancelling ? "Membatalkan…" : "Ya, batalkan")
+                    </button>
+                </div>
+            </div>
+        }
+        @if (CanDispute && disputing)
+        {
+            <section class="card editor__section editor__section--spaced">
+                <h2 class="section-sub">Ajukan sengketa</h2>
+                <p class="editor__hint">Potongan deposit ditentukan admin, bukan oleh kedua pihak.</p>
+                <EditForm Model="disputeModel" OnValidSubmit="DoDispute" class="form">
+                    <DataAnnotationsValidator />
+
+                    <div class="field">
+                        <label for="reason">Alasan</label>
+                        <InputTextArea id="reason" @bind-Value="disputeModel.Reason" rows="4"
+                                       placeholder="mis. barang tidak sesuai deskripsi" />
+                        <ValidationMessage For="() => disputeModel.Reason" />
+                    </div>
+                    <div class="editor__save">
+                        <button type="button" class="btn btn--outline" @onclick="() => disputing = false" disabled="@acting">
+                            Batal
+                        </button>
+                        <button type="submit" class="btn btn--primary" disabled="@acting">
+                            @(acting ? "Mengirim…" : "Kirim sengketa")
+                        </button>
+                    </div>
+                </EditForm>
+            </section>
+        }
+        @if (CanReview && reviewing)
+        {
+            <section class="card editor__section editor__section--spaced">
+                <h2 class="section-sub">Beri penilaian</h2>
+                <p class="editor__hint">Penilaian tidak dapat diubah atau dihapus setelah dikirim.</p>
+                <EditForm Model="reviewModel" OnValidSubmit="DoReview" class="form">
+                    <DataAnnotationsValidator />
+
+                    <div class="field">
+                        <label for="rating">Bintang</label>
+                        <InputSelect id="rating" @bind-Value="reviewModel.Rating">
+                            @for (var i = 5; i >= 1; i--)
+                            {
+                                var nilai = i;
+                                <option value="@nilai">@nilai</option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="() => reviewModel.Rating" />
+                    </div>
+                    <div class="field">
+                        <label for="comment">Komentar (opsional)</label>
+                        <InputTextArea id="comment" @bind-Value="reviewModel.Comment" rows="4" />
+                        <ValidationMessage For="() => reviewModel.Comment" />
+                    </div>
+                    <div class="editor__save">
+                        <button type="button" class="btn btn--outline" @onclick="() => reviewing = false" disabled="@acting">
+                            Batal
+                        </button>
+                        <button type="submit" class="btn btn--primary" disabled="@acting">
+                            @(acting ? "Mengirim…" : "Kirim penilaian")
+                        </button>
+                    </div>
+                </EditForm>
+            </section>
+        }
+    </div>
+}
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private BookingResponse? booking;
+    private BookingLedgerResponse? ledger;
+    private ReviewResponse? review;
+    private bool ready;
+    private bool loading = true;
+
+    private bool confirmingCancel;
+    private bool cancelling;
+    private bool disputing;
+    private bool reviewing;
+    private bool acting;
+    private string? actionError;
+    private DisputeForm disputeModel = new();
+    private ReviewForm reviewModel = new();
+
+    private bool CanCancel => booking?.Status is "pending" or "confirmed";
+
+    private DepositState? Deposit
+    {
+        get
+        {
+            if (booking is null || ledger is null)
+            {
+                return null;
+            }
+
+            decimal Jumlah(string kind, string? status = null) =>
+                ledger.Entries
+                    .Where(e => e.Kind == kind && (status is null || e.Status == status))
+                    .Sum(e => e.Amount);
+
+            var dariLedger = Jumlah("deposit_charge");
+            var ditagih    = dariLedger > 0m ? dariLedger : booking.DepositAmount;
+            var lunas    = Jumlah("deposit_charge", "paid") > 0m;
+            var refundOk = Jumlah("deposit_refund", "paid");
+            var refund   = Jumlah("deposit_refund");
+
+            return Labels.Deposit(
+                booking.Status, ditagih, lunas,
+                refund, refundOk > 0m, Jumlah("deposit_forfeit"));
+        }
+    }
+
+    private bool CanPay => booking?.Status == "confirmed" && ledger?.IsSettled != true;
+
+    private bool CanDispute => booking?.Status == "active";
+    private bool CanReview => booking?.Status == "completed" && review is null;
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        if (ready)
+        {
+            await Load();
+            StateHasChanged();
+        }
+    });
+
+    public void Dispose() => Live.Changed -= OnLive;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Auth.InitializeAsync();
+        if (!Auth.IsAuthenticated)
+        {
+            Nav.NavigateTo($"/masuk?returnUrl={Uri.EscapeDataString($"/sewaanku/{Id}")}");
+            return;
+        }
+        ready = true;
+        await Load();
+    }
+    private async Task Load()
+    {
+        loading = true;
+        confirmingCancel = false;
+        try
+        {
+            booking = await Api.GetBookingAsync(Id);
+            if (booking is not null)
+            {
+                ledger = await Api.GetLedgerAsync(Id);
+                review = booking.Status == "completed" ? await Api.GetBookingReviewAsync(Id) : null;
+            }
+        }
+        catch
+        {
+            booking = null;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+    private async Task DoCancel()
+    {
+        cancelling = true;
+        actionError = null;
+        var (updated, error) = await Api.CancelBookingAsync(booking!.Id);
+        cancelling = false;
+        confirmingCancel = false;
+        if (updated is null)
+        {
+            actionError = error ?? "Gagal membatalkan sewa. Coba lagi.";
+            return;
+        }
+        await SegarkanAsync();
+    }
+
+    private async Task DoDispute()
+    {
+        acting = true;
+        actionError = null;
+        var (updated, error) = await Api.DisputeBookingAsync(Id, disputeModel.Reason.Trim());
+        acting = false;
+
+        if (updated is null)
+        {
+            actionError = error ?? "Gagal mengajukan sengketa. Coba lagi.";
+            return;
+        }
+        disputing = false;
+        disputeModel = new DisputeForm();
+        await SegarkanAsync();
+    }
+    private async Task DoReview()
+    {
+        acting = true;
+        actionError = null;
+        var (created, error) = await Api.CreateReviewAsync(Id, new CreateReviewRequest
+        {
+            Rating  = reviewModel.Rating,
+            Comment = string.IsNullOrWhiteSpace(reviewModel.Comment) ? null : reviewModel.Comment!.Trim()
+        });
+        acting = false;
+        if (created is null)
+        {
+            actionError = error ?? "Gagal mengirim penilaian. Coba lagi.";
+            return;
+        }
+        reviewing = false;
+        review = created;
+        await Live.RefreshAsync();
+    }
+
+    private async Task SegarkanAsync()
+    {
+        await Load();
+        await Live.RefreshAsync();
+
+        try { await JS.InvokeVoidAsync("sewaScrollToPageTop"); }
+        catch (JSException) { }
+    }
+    private sealed class DisputeForm
+    {
+        [Required(ErrorMessage = "Alasan sengketa wajib diisi.")]
+        [StringLength(2000, MinimumLength = 10, ErrorMessage = "Alasan harus 10–2000 karakter.")]
+        public string Reason { get; set; } = string.Empty;
+    }
+    private sealed class ReviewForm
+    {
+        [Range(1, 5, ErrorMessage = "Bintang harus antara 1 dan 5.")]
+        public int Rating { get; set; } = 5;
+        [StringLength(2000, ErrorMessage = "Komentar maksimal 2000 karakter.")]
+        public string? Comment { get; set; }
+    }
+}

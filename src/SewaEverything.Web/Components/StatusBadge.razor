@@ -1,0 +1,4 @@
+<span class="badge badge--@Status">@Labels.BookingStatus(Status)</span>
+@code {
+    [Parameter, EditorRequired] public string Status { get; set; } = default!;
+}

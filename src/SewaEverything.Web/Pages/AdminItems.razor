@@ -1,0 +1,391 @@
+@page "/admin/listing"
+@layout AdminOnlyLayout
+@inject SewaApi Api
+@inject NavigationManager Nav
+@inject LiveState Live
+@implements IDisposable
+
+<PageTitle>Moderasi listing — Sewaku</PageTitle>
+
+<div class="panel-head">
+    <h1 class="page-title">Moderasi listing</h1>
+    <p>Listing baru tampil di katalog setelah disetujui. Listing yang diturunkan tidak dapat ditayangkan ulang oleh pemiliknya.</p>
+</div>
+
+<div class="filters" data-page-top>
+    <input type="search" placeholder="Cari judul, kategori, deskripsi…" aria-label="Cari listing"
+           @bind="keyword" @bind:event="oninput" @onkeydown="OnSearchKey" />
+    <button class="btn btn--outline btn--sm" @onclick="() => GoTo(1)">Cari</button>
+
+    <select @bind="filter" @bind:after="() => GoTo(1)" aria-label="Saring listing">
+        <option value="">Menunggu verifikasi@(Live.PendingItems > 0 ? $" ({Live.PendingItems})" : "")</option>
+        <option value="semua">Semua listing</option>
+        <option value="ditolak">Ditolak</option>
+        <option value="diturunkan">Sedang diturunkan</option>
+    </select>
+</div>
+
+@if (loading)
+{
+    <Skeleton Bentuk="item" Jumlah="3" />
+}
+else if (result is null)
+{
+    <div class="state">
+        <h3>Gagal memuat</h3>
+        <p>Server tidak menjawab.</p>
+        <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+    </div>
+}
+else if (result.Items.Count == 0)
+{
+    <div class="state state--flush">
+        <h3>@(Saring is null or "" && !HasKeyword ? "Antrean kosong" : "Tidak ada listing")</h3>
+        <p>
+            @if (Saring is null or "" && !HasKeyword)
+            {
+                <text>Semua listing sudah ditinjau.</text>
+            }
+            else if (HasFilter)
+            {
+                <text>Tidak ada listing yang cocok dengan filter ini.</text>
+            }
+            else
+            {
+                <text>Katalog masih kosong.</text>
+            }
+        </p>
+    </div>
+}
+else
+{
+    @if (actionError is not null && formId is null)
+    {
+        <div class="form__alert" role="alert">@actionError</div>
+    }
+    <div class="card table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th colspan="2">Barang</th>
+                    <th>Pemilik</th>
+                    <th>Status katalog</th>
+                    <th class="num">Sewa jalan</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in result.Items)
+                {
+                    var state = Labels.ItemListingState(item.Status, item.SuspendedAt, item.ReviewStatus);
+                    var pending  = item.ReviewStatus == "pending";
+                    var rejected = item.ReviewStatus == "rejected";
+                    var approved = item.ReviewStatus == "approved";
+                    var panelOpen = pending || rejected || item.SuspendedAt is not null || formId == item.Id;
+                    <tr>
+                        <td class="table__thumb">
+                            @if (Api.PhotoUrl(item.PrimaryPhotoUrl) is { } photo)
+                            {
+                                <img src="@photo" alt="" loading="lazy" />
+                            }
+                            else
+                            {
+                                <span class="placeholder">@Icons.Box</span>
+                            }
+                        </td>
+                        <td>
+                            <div class="table__main">@item.Title</div>
+                            <div class="table__sub">
+                                @item.Category · <span class="price">@Format.Rupiah(item.Price)</span><span class="price-unit">@Format.PriceUnit(item.PriceUnit)</span>
+                            </div>
+                        </td>
+                        <td>
+                            @item.SellerName
+                            @if (!item.SellerIsVerified)
+                            {
+                                <div class="table__sub">Belum terverifikasi</div>
+                            }
+                        </td>
+                        <td>
+                            @if (state == "suspended")
+                            {
+                                <span class="tag tag--off">Diturunkan admin</span>
+                            }
+                            else if (state == "pending_review")
+                            {
+                                <span class="tag tag--wait">Menunggu verifikasi</span>
+                            }
+                            else if (state == "rejected")
+                            {
+                                <span class="tag tag--danger">@Icons.Alert Ditolak</span>
+                            }
+                            else if (item.Status != "active")
+                            {
+                                <span class="tag tag--off">Dimatikan pemilik</span>
+                            }
+                            else if (!item.SellerIsVerified)
+                            {
+                                <span class="tag tag--wait">Pemilik belum terverifikasi</span>
+                            }
+                            else
+                            {
+                                <span class="tag tag--on">Tampil di katalog</span>
+                            }
+                        </td>
+                        <td class="num">@(item.ActiveBookingCount > 0 ? item.ActiveBookingCount.ToString() : "—")</td>
+                        <td class="table__actions">
+                            <a class="btn btn--outline btn--sm" href="@($"/barang/{item.Id}")"
+                               target="_blank" rel="noopener">Lihat</a>
+                            @if (pending || rejected)
+                            {
+                                <button class="btn btn--outline btn--sm" disabled="@(busyId is not null)"
+                                        @onclick="() => Approve(item)">
+                                    @(busyId == item.Id && busyAction == "approve" ? "Memproses…" : "Setujui")
+                                </button>
+                                @if (pending && formId != item.Id)
+                                {
+                                    <button class="btn btn--outline btn--sm" disabled="@(busyId is not null)"
+                                            @onclick="() => BeginForm(item.Id, Form.Reject)">Tolak</button>
+                                }
+                            }
+                            else if (item.SuspendedAt is not null)
+                            {
+                                <button class="btn btn--outline btn--sm" disabled="@(busyId is not null)"
+                                        @onclick="() => Unsuspend(item)">
+                                    @(busyId == item.Id ? "Memproses…" : "Pulihkan")
+                                </button>
+                            }
+                            else if (approved && formId != item.Id)
+                            {
+                                <button class="btn btn--outline btn--sm" disabled="@(busyId is not null)"
+                                        @onclick="() => BeginForm(item.Id, Form.Suspend)">Turunkan</button>
+                            }
+                        </td>
+                    </tr>
+                    @if (panelOpen)
+                    {
+                        <tr class="table__panel">
+                            <td colspan="6">
+                                @if (pending)
+                                {
+                                    <p class="table__note">
+                                        <b>Diajukan @Format.Tanggal(item.CreatedAt) · @item.PhotoCount foto</b><br />
+                                        @(string.IsNullOrWhiteSpace(item.Description) ? "Tanpa deskripsi." : item.Description)
+                                    </p>
+                                }
+                                @if (rejected && item.ReviewedAt is { } tolak)
+                                {
+                                    <p class="table__note">
+                                        <b>Ditolak @Format.Tanggal(tolak)@(item.ReviewedByName is null ? "" : $" oleh {item.ReviewedByName}")</b><br />
+                                        @item.RejectionReason
+                                    </p>
+                                }
+                                @if (item.SuspendedAt is { } turun)
+                                {
+                                    <p class="table__note">
+                                        <b>Diturunkan @Format.Tanggal(turun)@(item.SuspendedByName is null ? "" : $" oleh {item.SuspendedByName}")</b><br />
+                                        @item.SuspensionReason
+                                    </p>
+                                }
+                                @if (formId == item.Id)
+                                {
+                                    var reject = form == Form.Reject;
+                                    <div class="confirm">
+                                        <div class="field">
+                                            <label for="@($"alasan-{item.Id}")">@(reject ? "Alasan penolakan" : "Alasan penurunan")</label>
+                                            <textarea id="@($"alasan-{item.Id}")" rows="2" maxlength="1000" @bind="reason"
+                                                      placeholder="@(reject ? "mis. foto tidak jelas, atau deskripsi tidak menyebut kondisi barang" : "mis. foto tidak sesuai barang, atau barang tidak boleh disewakan")"></textarea>
+                                            <span class="field__hint">Wajib diisi. Dibaca pemiliknya.</span>
+                                        </div>
+                                        @if (actionError is not null)
+                                        {
+                                            <div class="form__alert" role="alert">@actionError</div>
+                                        }
+                                        <div class="confirm__actions">
+                                            <button class="btn btn--outline" disabled="@(busyId is not null)"
+                                                    @onclick="CancelForm">Batal</button>
+                                            <button class="btn btn--primary" disabled="@(busyId is not null)"
+                                                    @onclick="() => SubmitForm(item)">
+                                                @(busyId == item.Id ? "Memproses…" : reject ? "Tolak listing" : "Turunkan listing")
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+    <Pager Page="result.Page" TotalPages="result.TotalPages" Total="result.Total"
+           Noun="listing" Busy="loading" OnGoTo="GoTo"
+           Jump="lompat" OnJumped="() => lompat = false" />
+}
+@code {
+    private const int PageSize = 20;
+    private enum Form { Suspend, Reject }
+    [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
+    [SupplyParameterFromQuery(Name = "saring")] public string? Saring { get; set; }
+    [SupplyParameterFromQuery(Name = "hal")] public int? Halaman { get; set; }
+    private PagedResponse<ModeratedItemResponse>? result;
+    private bool loading = true;
+    private bool lompat;
+    private string? keyword;
+    private string filter = string.Empty;
+    private Guid? busyId;
+    private string? busyAction;
+    private Guid? formId;
+    private Form form;
+    private string? reason;
+    private string? actionError;
+
+    private bool HasKeyword => !string.IsNullOrWhiteSpace(Q);
+    private bool HasFilter => HasKeyword || !string.IsNullOrEmpty(Saring);
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        if (formId is null && busyId is null)
+        {
+            await Load();
+            StateHasChanged();
+        }
+    });
+
+    public void Dispose() => Live.Changed -= OnLive;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        keyword = Q;
+        filter  = Saring ?? string.Empty;
+        await Load();
+    }
+    private void OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            GoTo(1);
+        }
+    }
+    private void GoTo(int target)
+    {
+        lompat = true;
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(keyword)) query.Add($"q={Uri.EscapeDataString(keyword.Trim())}");
+        if (filter.Length > 0) query.Add($"saring={filter}");
+        if (target > 1) query.Add($"hal={target}");
+        Nav.NavigateTo(query.Count == 0 ? "/admin/listing" : "/admin/listing?" + string.Join('&', query));
+    }
+    private async Task Load()
+    {
+        loading = true;
+        formId = null;
+        actionError = null;
+        try
+        {
+            result = await Api.GetModeratedItemsAsync(
+                q: Q,
+                suspended: Saring == "diturunkan" ? true : null,
+                review: Saring switch { null or "" => "pending", "ditolak" => "rejected", _ => null },
+                page: Halaman is > 0 ? Halaman.Value : 1,
+                pageSize: PageSize);
+        }
+        catch
+        {
+            result = null;
+        }
+        finally
+        {
+            loading = false;
+        }
+        if (Paging.OutOfRange(result) is { } terakhir)
+        {
+            GoTo(terakhir);
+        }
+    }
+    private void BeginForm(Guid id, Form which)
+    {
+        formId = id;
+        form = which;
+        reason = null;
+        actionError = null;
+    }
+    private void CancelForm()
+    {
+        formId = null;
+        reason = null;
+        actionError = null;
+    }
+    private async Task SubmitForm(ModeratedItemResponse item)
+    {
+        if (string.IsNullOrWhiteSpace(reason) || reason.Trim().Length < 5)
+        {
+            actionError = form == Form.Reject
+                ? "Alasan penolakan wajib diisi, minimal 5 karakter."
+                : "Alasan penurunan wajib diisi, minimal 5 karakter.";
+            return;
+        }
+        busyId = item.Id;
+        busyAction = form == Form.Reject ? "reject" : "suspend";
+        actionError = null;
+        var (updated, err) = form == Form.Reject
+            ? await Api.RejectItemAsync(item.Id, reason.Trim())
+            : await Api.SuspendItemAsync(item.Id, reason.Trim());
+
+        busyId = null;
+        busyAction = null;
+        if (updated is null)
+        {
+            actionError = err ?? (form == Form.Reject ? "Gagal menolak listing." : "Gagal menurunkan listing.");
+            return;
+        }
+        formId = null;
+        reason = null;
+        await Replace(updated);
+    }
+
+    private async Task Approve(ModeratedItemResponse item)
+    {
+        busyId = item.Id;
+        busyAction = "approve";
+        actionError = null;
+
+        var (updated, err) = await Api.ApproveItemAsync(item.Id);
+        busyId = null;
+        busyAction = null;
+        if (updated is null)
+        {
+            actionError = err ?? "Gagal menyetujui listing.";
+            return;
+        }
+        await Replace(updated);
+    }
+
+    private async Task Unsuspend(ModeratedItemResponse item)
+    {
+        busyId = item.Id;
+        busyAction = "unsuspend";
+        actionError = null;
+
+        var (updated, err) = await Api.UnsuspendItemAsync(item.Id);
+        busyId = null;
+        busyAction = null;
+        if (updated is null)
+        {
+            actionError = err ?? "Gagal memulihkan listing.";
+            return;
+        }
+        await Replace(updated);
+    }
+
+    private async Task Replace(ModeratedItemResponse updated)
+    {
+        if (result is null) return;
+        result = result with
+        {
+            Items = [.. result.Items.Select(i => i.Id == updated.Id ? updated : i)]
+        };
+        await Live.RefreshAsync();
+    }
+}

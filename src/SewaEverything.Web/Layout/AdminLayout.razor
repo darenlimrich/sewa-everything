@@ -1,0 +1,121 @@
+@inherits LayoutComponentBase
+@layout MainLayout
+@implements IDisposable
+@inject AuthState Auth
+@inject NavigationManager Nav
+@inject LiveState Live
+@inject IJSRuntime JS
+@if (gate == Gate.Loading)
+{
+    <div class="container page-pad">
+        <h1 class="visually-hidden">Panel admin</h1>
+        <Skeleton Bentuk="tabel" Kolom="5" />
+    </div>
+}
+else if (gate == Gate.Forbidden)
+{
+    <div class="container page-pad">
+        <h1 class="visually-hidden">Panel admin</h1>
+        <div class="state">
+            <h3>Halaman khusus staf</h3>
+            <p>Panel ini hanya untuk admin dan superadmin.</p>
+            <a class="btn btn--outline" href="/">Ke beranda</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="container page-pad seller-shell">
+        <aside class="seller-nav">
+            <div class="seller-nav__heading">@(Auth.User?.Role == "owner" ? "Pengelolaan platform" : "Operasional Sewaku")</div>
+            @if (Auth.User?.Role == "admin")
+            {
+                <NavLink class="seller-nav__item" href="admin" Match="NavLinkMatch.All">
+                    @Icons.Shield <span>Verifikasi pemilik</span>
+                    @if (Live.PendingSellers > 0)
+                    {
+                        <span class="nav-flag">@Live.PendingSellers</span>
+                    }
+                </NavLink>
+                <NavLink class="seller-nav__item" href="admin/listing" Match="NavLinkMatch.Prefix">
+                    @Icons.Box <span>Moderasi listing</span>
+                    @if (Live.PendingItems > 0)
+                    {
+                        <span class="nav-flag">@Live.PendingItems</span>
+                    }
+                </NavLink>
+                <NavLink class="seller-nav__item" href="admin/sengketa" Match="NavLinkMatch.Prefix">
+                    @Icons.Alert <span>Sengketa</span>
+                    @if (Live.OpenDisputes > 0)
+                    {
+                        <span class="nav-flag">@Live.OpenDisputes</span>
+                    }
+                </NavLink>
+                <NavLink class="seller-nav__item" href="admin/pencairan" Match="NavLinkMatch.Prefix">
+                    @Icons.Card <span>Pencairan</span>
+                    @if (Live.PendingPayouts > 0)
+                    {
+                        <span class="nav-flag">@Live.PendingPayouts</span>
+                    }
+                </NavLink>
+            }
+            @if (Auth.User?.Role == "owner")
+            {
+                <NavLink class="seller-nav__item" href="owner/pendapatan" Match="NavLinkMatch.Prefix">
+                    @Icons.Chart <span>Pendapatan</span>
+                </NavLink>
+                <NavLink class="seller-nav__item" href="owner/admin" Match="NavLinkMatch.Prefix">
+                    @Icons.Users <span>Akun admin</span>
+                </NavLink>
+                <NavLink class="seller-nav__item" href="owner/gateway" Match="NavLinkMatch.Prefix">
+                    @Icons.Link <span>Gerbang bayar</span>
+                </NavLink>
+                <NavLink class="seller-nav__item" href="owner" Match="NavLinkMatch.All">
+                    @Icons.Grid <span>Pengaturan</span>
+                </NavLink>
+            }
+            <NavLink class="seller-nav__item" href="staf/keamanan" Match="NavLinkMatch.Prefix">
+                @Icons.Lock <span>Keamanan</span>
+            </NavLink>
+        </aside>
+        <div class="seller-content">
+            @Body
+        </div>
+    </div>
+}
+@code {
+    private enum Gate { Loading, Forbidden, Ready }
+    private Gate gate = Gate.Loading;
+
+    protected override void OnInitialized() => Live.Changed += OnLive;
+
+    private void OnLive() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Live.Changed -= OnLive;
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+        if (!Auth.IsAuthenticated)
+        {
+            var here = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+            Nav.NavigateTo($"{Routes.StaffLogin}?returnUrl={Uri.EscapeDataString(here)}");
+            return;
+        }
+        gate = Auth.User?.Role is "admin" or "owner" ? Gate.Ready : Gate.Forbidden;
+    }
+
+    private string? lastUri;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (gate != Gate.Ready || Nav.Uri == lastUri)
+        {
+            return;
+        }
+
+        lastUri = Nav.Uri;
+
+        try { await JS.InvokeVoidAsync("sewaScrollNavIntoView"); }
+        catch (JSException) { }
+    }
+}

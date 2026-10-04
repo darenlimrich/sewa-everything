@@ -1,0 +1,285 @@
+@page "/akun"
+@using System.ComponentModel.DataAnnotations
+@inject SewaApi Api
+@inject AuthState Auth
+@inject NavigationManager Nav
+
+<PageTitle>Profil Saya — Sewaku</PageTitle>
+
+<div class="container page-pad">
+    @if (!ready || Auth.User is null)
+    {
+        <h1 class="visually-hidden">Profil Saya</h1>
+        <Skeleton Bentuk="akun" />
+    }
+    else
+    {
+        var user = Auth.User;
+
+        <div class="acct">
+            <AccountNav User="user" />
+
+            <section class="acct__main">
+                <div class="acct__head">
+                    <h1>Profil Saya</h1>
+                </div>
+
+                <div class="acct__body">
+                    <EditForm Model="form" OnValidSubmit="Save" class="acct__form">
+                        <DataAnnotationsValidator />
+
+                        @if (error is not null)
+                        {
+                            <div class="form__alert" role="alert">@error</div>
+                        }
+
+                        <div class="acct__row">
+                            <label class="acct__label" for="nama">Nama</label>
+                            <div class="acct__value">
+                                <InputText id="nama" @bind-Value="form.Name" autocomplete="name" />
+                                <ValidationMessage For="() => form.Name" />
+                            </div>
+                        </div>
+
+                        <div class="acct__row">
+                            <span class="acct__label">Email</span>
+                            <div class="acct__value">
+                                <span class="acct__static">@user.Email</span>
+                                <p class="acct__hint">Tidak dapat diubah.</p>
+                            </div>
+                        </div>
+
+                        <div class="acct__row">
+                            <label class="acct__label" for="telepon">Nomor Telepon</label>
+                            <div class="acct__value">
+                                <InputText id="telepon" @bind-Value="form.Phone"
+                                           autocomplete="tel" placeholder="08xxxxxxxxxx" />
+                                <ValidationMessage For="() => form.Phone" />
+                            </div>
+                        </div>
+
+                        <div class="acct__row">
+                            <span class="acct__label">Bergabung</span>
+                            <div class="acct__value">
+                                <span class="acct__static">@Format.Tanggal(user.CreatedAt)</span>
+                            </div>
+                        </div>
+
+                        <div class="acct__row">
+                            <span class="acct__label"></span>
+                            <div class="acct__value acct__value--actions">
+                                <button type="submit" class="btn btn--primary" disabled="@saving">
+                                    @(saving ? "Menyimpan…" : "Simpan")
+                                </button>
+                                @if (saved)
+                                {
+                                    <span class="editor__saved">@Icons.Shield Tersimpan</span>
+                                }
+                            </div>
+                        </div>
+                    </EditForm>
+
+                    <div class="acct__portrait">
+                        <Avatar Url="@user.AvatarUrl" Name="@user.Name" Class="avatar--xl" />
+
+                        @if (photoError is not null)
+                        {
+                            <div class="form__alert" role="alert">@photoError</div>
+                        }
+
+                        <div class="acct__pick">
+                            <label class="btn btn--outline btn--sm">
+                                <InputFile OnChange="PilihFoto" accept="image/jpeg,image/png,image/webp"
+                                           disabled="@uploading" />
+                                @(uploading ? "Mengunggah…" : "Pilih Gambar")
+                            </label>
+
+                            @if (user.AvatarUrl is not null)
+                            {
+                                <button type="button" class="btn btn--outline btn--sm"
+                                        @onclick="HapusFoto" disabled="@uploading">Hapus</button>
+                            }
+                        </div>
+
+                        <p class="acct__hint">JPG, PNG, atau WebP. Maksimal 5 MB.</p>
+
+                        <span class="acct__peran">@Labels.Role(user.Role)</span>
+
+                        @if (user.Role == "seller")
+                        {
+                            @if (user.IsVerified)
+                            {
+                                <span class="verified">@Icons.Shield Terverifikasi</span>
+                            }
+                            else
+                            {
+                                <span class="pending-verif">Menunggu verifikasi admin</span>
+                            }
+                        }
+                    </div>
+                </div>
+
+                @if (user.Role == "seller" && !user.IsVerified)
+                {
+                    <p class="acct__note">
+                        Barang dapat disiapkan sekarang, tetapi baru muncul di katalog setelah dokumen
+                        diverifikasi admin.
+                    </p>
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@code {
+    private const long MaxPhotoBytes = 5 * 1024 * 1024;
+
+    private bool ready;
+    private bool saving;
+    private bool saved;
+    private bool uploading;
+    private string? error;
+    private string? photoError;
+    private ProfileForm form = new();
+
+    private async Task PilihFoto(InputFileChangeEventArgs e)
+    {
+        photoError = null;
+
+        var file = e.File;
+        if (file is null) return;
+
+        if (file.Size > MaxPhotoBytes)
+        {
+            photoError = "Ukuran foto maksimal 5 MB.";
+            return;
+        }
+
+        uploading = true;
+
+        try
+        {
+            await using var stream = file.OpenReadStream(MaxPhotoBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+
+            var (updated, err) = await Api.UploadAvatarAsync(
+                buffer.ToArray(), file.Name, file.ContentType);
+
+            if (updated is null)
+            {
+                photoError = err ?? "Gagal mengunggah foto.";
+            }
+            else
+            {
+                await Auth.UpdateUserAsync(updated);
+            }
+        }
+        catch
+        {
+            photoError = "Gagal mengunggah foto.";
+        }
+        finally
+        {
+            uploading = false;
+        }
+    }
+
+    private async Task HapusFoto()
+    {
+        photoError = null;
+        uploading = true;
+
+        var (updated, err) = await Api.DeleteAvatarAsync();
+
+        if (updated is null)
+        {
+            photoError = err ?? "Gagal menghapus foto.";
+        }
+        else
+        {
+            await Auth.UpdateUserAsync(updated);
+        }
+
+        uploading = false;
+    }
+
+    private sealed class ProfileForm
+    {
+        [Required(ErrorMessage = "Nama wajib diisi.")]
+        [StringLength(120, MinimumLength = 2, ErrorMessage = "Nama harus 2–120 karakter.")]
+        public string Name { get; set; } = string.Empty;
+
+        [Phone(ErrorMessage = "Format nomor telepon tidak valid.")]
+        [StringLength(30)]
+        public string? Phone { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+        if (!Auth.IsAuthenticated)
+        {
+            Nav.NavigateTo($"/masuk?returnUrl={Uri.EscapeDataString("/akun")}");
+            return;
+        }
+
+        if (Routes.StaffPanel(Auth.User?.Role) is { } panel)
+        {
+            Nav.NavigateTo(panel, replace: true);
+            return;
+        }
+
+        ready = true;
+        Fill();
+
+        try
+        {
+            var fresh = await Api.GetMeAsync();
+            if (fresh is null)
+            {
+                var keStaf = Routes.IsStaff(Auth.User?.Role);
+                await Auth.SignOutAsync();
+                Nav.NavigateTo(keStaf ? Routes.StaffLogin : Routes.PublicLogin);
+                return;
+            }
+
+            await Auth.UpdateUserAsync(fresh);
+            Fill();
+        }
+        catch
+        {
+        }
+    }
+
+    private void Fill()
+    {
+        if (Auth.User is { } user)
+        {
+            form = new ProfileForm { Name = user.Name, Phone = user.Phone };
+        }
+    }
+
+    private async Task Save()
+    {
+        saving = true;
+        saved = false;
+        error = null;
+
+        var (updated, gagal) = await Api.UpdateMeAsync(
+            new UpdateProfileRequest { Name = form.Name, Phone = form.Phone });
+
+        if (updated is null)
+        {
+            error = gagal;
+        }
+        else
+        {
+            await Auth.UpdateUserAsync(updated);
+            Fill();
+            saved = true;
+        }
+
+        saving = false;
+    }
+}

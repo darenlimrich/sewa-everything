@@ -1,0 +1,219 @@
+@page "/owner"
+@layout AdminLayout
+@using System.Globalization
+@inject SewaApi Api
+@inject AuthState Auth
+
+<PageTitle>Pengaturan platform — Sewaku</PageTitle>
+
+<h1 class="page-title">Pengaturan platform</h1>
+
+@if (Auth.User?.Role != "owner")
+{
+    <div class="state">
+        <h3>Khusus superadmin</h3>
+        <p>Halaman ini hanya untuk superadmin.</p>
+    </div>
+}
+else if (loading)
+{
+    <Skeleton Bentuk="editor" Jumlah="3" />
+}
+else if (loadError)
+{
+    <div class="state">
+        <h3>Gagal memuat</h3>
+        <p>Server tidak menjawab.</p>
+        <button class="btn btn--outline" @onclick="Load">Coba lagi</button>
+    </div>
+}
+else
+{
+    <p class="editor__hint">Berlaku untuk sewa baru. Sewa yang sedang berjalan tidak berubah.</p>
+
+    <div class="card editor__section">
+        <EditForm Model="model" OnValidSubmit="Save" class="form">
+            <DataAnnotationsValidator />
+
+            @if (saveError is not null)
+            {
+                <div class="form__alert" role="alert">@saveError</div>
+            }
+
+            <div class="field-row">
+                <div class="field">
+                    <label for="rate">Komisi platform</label>
+                    <div class="input-affix">
+                        <InputNumber id="rate" @bind-Value="model.CommissionPercent" step="0.5" />
+                        <span class="input-affix__post">%</span>
+                    </div>
+                    <ValidationMessage For="() => model.CommissionPercent" />
+                    <span class="field__hint">Contoh 5 = 5%.</span>
+                </div>
+
+                <div class="field">
+                    <label for="mode">Mode komisi</label>
+                    <InputSelect id="mode" @bind-Value="model.CommissionMode">
+                        <option value="deduct">Potong dari pemilik</option>
+                        <option value="on_top">Tagihkan ke penyewa</option>
+                    </InputSelect>
+                    <span class="field__hint">
+                        @(model.CommissionMode == "on_top"
+                            ? "Penyewa bayar sewa + komisi. Pemilik terima penuh."
+                            : "Pemilik terima sewa dikurangi komisi.")
+                    </span>
+                </div>
+            </div>
+
+            <div class="field-row">
+                <div class="field">
+                    <label for="approve">Batas pemilik menyetujui</label>
+                    <div class="input-affix">
+                        <InputNumber id="approve" @bind-Value="model.ApprovalMinutes" />
+                        <span class="input-affix__post">menit</span>
+                    </div>
+                    <ValidationMessage For="() => model.ApprovalMinutes" />
+                </div>
+
+                <div class="field">
+                    <label for="pay">Batas penyewa membayar</label>
+                    <div class="input-affix">
+                        <InputNumber id="pay" @bind-Value="model.PaymentMinutes" />
+                        <span class="input-affix__post">menit</span>
+                    </div>
+                    <ValidationMessage For="() => model.PaymentMinutes" />
+                </div>
+            </div>
+
+            <div class="field">
+                <label for="return">Batas konfirmasi barang kembali</label>
+                <div class="input-affix">
+                    <InputNumber id="return" @bind-Value="model.ReturnWindowDays" />
+                    <span class="input-affix__post">hari</span>
+                </div>
+                <ValidationMessage For="() => model.ReturnWindowDays" />
+                <span class="field__hint">Setelah batas ini, sewa selesai otomatis dan deposit kembali penuh.</span>
+            </div>
+
+            <div class="editor__save">
+                <button type="submit" class="btn btn--primary" disabled="@saving">
+                    @(saving ? "Menyimpan…" : "Simpan pengaturan")
+                </button>
+                @if (saved)
+                {
+                    <span class="editor__saved">@Icons.Shield Tersimpan</span>
+                }
+                @if (updatedAt is { } at)
+                {
+                    <span class="field__hint">Terakhir diubah @Format.Waktu(at)</span>
+                }
+            </div>
+        </EditForm>
+    </div>
+}
+
+@code {
+    private readonly SettingsForm model = new();
+    private bool loading = true;
+    private bool loadError;
+    private bool saving;
+    private bool saved;
+    private string? saveError;
+    private DateTime? updatedAt;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+        if (Auth.User?.Role == "owner")
+        {
+            await Load();
+        }
+        else
+        {
+            loading = false;
+        }
+    }
+
+    private static decimal Persen(decimal rate) => decimal.Parse(
+        (rate * 100m).ToString("0.##", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+
+    private async Task Load()
+    {
+        loading = true;
+        loadError = false;
+        saved = false;
+        saveError = null;
+
+        try
+        {
+            var settings = await Api.GetPlatformSettingsAsync();
+            if (settings is null)
+            {
+                loadError = true;
+                return;
+            }
+
+            model.CommissionPercent = Persen(settings.CommissionRate);
+            model.CommissionMode    = settings.CommissionMode;
+            model.ApprovalMinutes   = settings.ApprovalMinutes;
+            model.PaymentMinutes    = settings.PaymentMinutes;
+            model.ReturnWindowDays  = settings.ReturnWindowDays;
+            updatedAt               = settings.UpdatedAt;
+        }
+        catch
+        {
+            loadError = true;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task Save()
+    {
+        saving = true;
+        saveError = null;
+        saved = false;
+
+        var (settings, err) = await Api.UpdatePlatformSettingsAsync(new UpdatePlatformSettingsRequest
+        {
+            CommissionRate   = model.CommissionPercent / 100m,
+            CommissionMode   = model.CommissionMode,
+            ApprovalMinutes  = model.ApprovalMinutes,
+            PaymentMinutes   = model.PaymentMinutes,
+            ReturnWindowDays = model.ReturnWindowDays
+        });
+
+        saving = false;
+
+        if (settings is null)
+        {
+            saveError = err ?? "Gagal menyimpan pengaturan.";
+            return;
+        }
+
+        model.CommissionPercent = Persen(settings.CommissionRate);
+        updatedAt = settings.UpdatedAt;
+        saved = true;
+    }
+
+    private sealed class SettingsForm
+    {
+        [Range(typeof(decimal), "0", "100", ParseLimitsInInvariantCulture = true,
+            ErrorMessage = "Komisi harus 0–100%.")]
+        public decimal CommissionPercent { get; set; }
+
+        [Required(ErrorMessage = "Mode komisi wajib diisi.")]
+        public string CommissionMode { get; set; } = "deduct";
+
+        [Range(1, 1440, ErrorMessage = "Jendela persetujuan pemilik harus 1–1440 menit.")]
+        public int ApprovalMinutes { get; set; } = 60;
+
+        [Range(1, 1440, ErrorMessage = "Jendela pembayaran harus 1–1440 menit.")]
+        public int PaymentMinutes { get; set; } = 60;
+
+        [Range(1, 30, ErrorMessage = "Jendela konfirmasi pengembalian harus 1–30 hari.")]
+        public int ReturnWindowDays { get; set; } = 3;
+    }
+}

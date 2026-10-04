@@ -1,0 +1,23 @@
+@inject SewaApi Api
+
+@if (Foto is { } src)
+{
+    <img class="avatar avatar--foto @Class" src="@src" alt="" loading="lazy" />
+}
+else
+{
+    <span class="avatar @Class">@Initial</span>
+}
+
+@code {
+    [Parameter] public string? Url { get; set; }
+
+    [Parameter] public string? Name { get; set; }
+
+    [Parameter] public string? Class { get; set; }
+
+    private string? Foto => string.IsNullOrWhiteSpace(Url) ? null : Api.PhotoUrl(Url);
+
+    private string Initial =>
+        string.IsNullOrWhiteSpace(Name) ? "?" : Name.Trim()[..1].ToUpperInvariant();
+}
