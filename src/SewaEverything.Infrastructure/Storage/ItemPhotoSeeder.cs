@@ -46,7 +46,6 @@ public static class ItemPhotoSeeder
 
         var db      = sp.GetRequiredService<SewaDbContext>();
         var storage = sp.GetRequiredService<IPhotoStorage>();
-        var disk    = sp.GetRequiredService<LocalDiskPhotoStorage>();
 
         var titles = Catalog.Select(c => c.Title).ToArray();
         var items = await db.Items
@@ -92,7 +91,7 @@ public static class ItemPhotoSeeder
 
             foreach (var item in byTitle[title])
             {
-                if (await AlreadySeededAsync(item, disk, seedHash, ct))
+                if (await AlreadySeededAsync(item, storage, seedHash, ct))
                 {
                     skipped++;
                     continue;
@@ -131,7 +130,7 @@ public static class ItemPhotoSeeder
     }
 
     private static async Task<bool> AlreadySeededAsync(
-        Item item, LocalDiskPhotoStorage disk, byte[] seedHash, CancellationToken ct)
+        Item item, IPhotoStorage storage, byte[] seedHash, CancellationToken ct)
     {
         if (item.Photos.Count != 1)
         {
@@ -139,18 +138,9 @@ public static class ItemPhotoSeeder
         }
 
         var url = item.Photos.OrderBy(p => p.SortOrder).First().Url;
-        var fileName = url.Split('/')[^1];
-        var fullPath = Path.Combine(disk.RootPath, fileName);
+        var existing = await storage.ReadAsync(url, ct);
 
-        if (!File.Exists(fullPath))
-        {
-            return false;
-        }
-
-        await using var file = new FileStream(
-            fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 64 * 1024,
-            useAsync: true);
-        var existingHash = await SHA256.HashDataAsync(file, ct);
-        return CryptographicOperations.FixedTimeEquals(existingHash, seedHash);
+        return existing is not null
+            && CryptographicOperations.FixedTimeEquals(SHA256.HashData(existing.Content), seedHash);
     }
 }

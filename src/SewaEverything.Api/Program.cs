@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using SewaEverything.Api;
 using SewaEverything.Api.Security;
@@ -109,6 +110,13 @@ if (security.TrustProxyHeaders)
         ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
     };
 
+    if (security.TrustAllProxies)
+    {
+        forwarded.ForwardLimit = 1;
+        forwarded.KnownIPNetworks.Clear();
+        forwarded.KnownProxies.Clear();
+    }
+
     foreach (var proxy in security.KnownProxies)
     {
         if (System.Net.IPAddress.TryParse(proxy, out var alamat))
@@ -133,20 +141,25 @@ if (security.RequireHttps
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
-var photos = app.Services.GetRequiredService<LocalDiskPhotoStorage>();
+var photoOptions = app.Services.GetRequiredService<IOptions<PhotoStorageOptions>>().Value;
 
-app.UseStaticFiles(new StaticFileOptions
+if (!photoOptions.UsesDatabase)
 {
-    FileProvider = new PhysicalFileProvider(photos.RootPath),
-    RequestPath  = photos.RequestPath,
+    var photos = app.Services.GetRequiredService<LocalDiskPhotoStorage>();
 
-    ServeUnknownFileTypes = false,
-
-    OnPrepareResponse = ctx =>
+    app.UseStaticFiles(new StaticFileOptions
     {
-        ctx.Context.Response.Headers.XContentTypeOptions = "nosniff";
-    }
-});
+        FileProvider = new PhysicalFileProvider(photos.RootPath),
+        RequestPath  = photos.RequestPath,
+
+        ServeUnknownFileTypes = false,
+
+        OnPrepareResponse = ctx =>
+        {
+            ctx.Context.Response.Headers.XContentTypeOptions = "nosniff";
+        }
+    });
+}
 
 app.UseRouting();
 
@@ -161,6 +174,27 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+if (photoOptions.UsesDatabase)
+{
+    app.MapGet($"{photoOptions.RequestPath}/{{name}}", async (
+        string name, HttpContext http, IPhotoStorage storage, CancellationToken ct) =>
+    {
+        var photo = await storage.ReadAsync(name, ct);
+
+        if (photo is null)
+        {
+            return Results.NotFound();
+        }
+
+        http.Response.Headers.XContentTypeOptions = "nosniff";
+        http.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+
+        return Results.File(photo.Content, photo.ContentType);
+    }).AllowAnonymous();
+}
+
+app.MapGet("/health", () => Results.Ok()).AllowAnonymous().DisableRateLimiting();
 
 await app.Services.ProtectStoredSecretsAsync();
 

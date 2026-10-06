@@ -1,10 +1,9 @@
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace SewaEverything.Infrastructure.Storage;
 
-public sealed partial class LocalDiskPhotoStorage : IPhotoStorage
+public sealed class LocalDiskPhotoStorage : IPhotoStorage
 {
     private readonly PhotoStorageOptions _options;
     private readonly string _rootPath;
@@ -26,7 +25,7 @@ public sealed partial class LocalDiskPhotoStorage : IPhotoStorage
 
     public async Task<string> SaveAsync(Stream content, ImageFormat format, CancellationToken ct = default)
     {
-        var fileName = $"{Guid.NewGuid():N}.{format.Extension()}";
+        var fileName = PhotoFileName.New(format);
 
         var fullPath = Path.Combine(_rootPath, fileName);
 
@@ -42,9 +41,7 @@ public sealed partial class LocalDiskPhotoStorage : IPhotoStorage
 
     public Task DeleteAsync(string url, CancellationToken ct = default)
     {
-        var fileName = url.Split('/')[^1];
-
-        if (!SafeFileName().IsMatch(fileName))
+        if (!PhotoFileName.TryFromUrl(url, out var fileName, out _))
         {
             return Task.CompletedTask;
         }
@@ -59,6 +56,20 @@ public sealed partial class LocalDiskPhotoStorage : IPhotoStorage
         return Task.CompletedTask;
     }
 
-    [GeneratedRegex("^[0-9a-f]{32}\\.(jpg|png|webp)$")]
-    private static partial Regex SafeFileName();
+    public async Task<StoredPhoto?> ReadAsync(string url, CancellationToken ct = default)
+    {
+        if (!PhotoFileName.TryFromUrl(url, out var fileName, out var contentType))
+        {
+            return null;
+        }
+
+        var fullPath = Path.Combine(_rootPath, fileName);
+
+        if (!File.Exists(fullPath))
+        {
+            return null;
+        }
+
+        return new StoredPhoto(await File.ReadAllBytesAsync(fullPath, ct), contentType);
+    }
 }

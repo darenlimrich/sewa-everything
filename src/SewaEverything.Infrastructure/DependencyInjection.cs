@@ -120,8 +120,19 @@ public static class DependencyInjection
 
         services.AddSingleton<IPasswordHasher, AspNetPasswordHasher>();
 
-        services.AddSingleton<LocalDiskPhotoStorage>();
-        services.AddSingleton<IPhotoStorage>(sp => sp.GetRequiredService<LocalDiskPhotoStorage>());
+        var photoStorage = configuration.GetSection(PhotoStorageOptions.SectionName)
+            .Get<PhotoStorageOptions>() ?? new PhotoStorageOptions();
+
+        if (photoStorage.UsesDatabase)
+        {
+            services.AddSingleton(new PhotoDataSource(connectionString));
+            services.AddSingleton<IPhotoStorage, DatabasePhotoStorage>();
+        }
+        else
+        {
+            services.AddSingleton<LocalDiskPhotoStorage>();
+            services.AddSingleton<IPhotoStorage>(sp => sp.GetRequiredService<LocalDiskPhotoStorage>());
+        }
 
         return services;
     }

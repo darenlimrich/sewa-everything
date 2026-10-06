@@ -12,6 +12,8 @@ public sealed class SecurityOptions
 
     public string[] KnownProxies { get; set; } = [];
 
+    public bool TrustAllProxies { get; set; }
+
     public int LoginPerWindow { get; set; } = 10;
 
     public int LoginWindowMinutes { get; set; } = 5;

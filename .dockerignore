@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+**/storage/
+**/appsettings.Development.json
+**/TestResults/
+.git/
+.vs/
+src/SewaEverything.Mobile/
+src/SewaEverything.Web/
+src/SewaEverything.Client/
+tests/
+*.pptx

@@ -6,6 +6,16 @@ public sealed class PhotoStorageOptions
 {
     public const string SectionName = "Storage:Photos";
 
+    public const string DiskProvider = "disk";
+
+    public const string DatabaseProvider = "database";
+
+    [RegularExpression("^(disk|database)$",
+        ErrorMessage = "Storage:Photos:Provider hanya 'disk' atau 'database'.")]
+    public string Provider { get; set; } = DiskProvider;
+
+    public bool UsesDatabase => Provider == DatabaseProvider;
+
     [Required(ErrorMessage = "Storage:Photos:RootPath wajib diisi.")]
     public string RootPath { get; set; } = "storage/photos";
 
